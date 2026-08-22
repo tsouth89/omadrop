@@ -71,6 +71,18 @@ def main():
     beat = BeatTracker(fps)
     prev_norm = np.zeros(bars, dtype=np.float32)
     perc_ceil = harm_ceil = 1e-3
+
+    # MilkDrop-style audio normalisation. Every audio variable is a RATIO
+    # against a ~4.2s running loudness, not an absolute level -- nominal 1.0
+    # whatever the track's mastering, <0.7 quiet, >1.3 loud, spiking to 3-5 on
+    # hits. Peak-normalising into 0..1 (what this used to do) saturates and
+    # throws away exactly the dynamics that read as punch.
+    # Rates are MilkDrop's 30fps constants adjusted to our frame rate.
+    _r_rise = 0.2 ** (30.0 / fps)
+    _r_fall = 0.5 ** (30.0 / fps)
+    _r_long = 0.992 ** (30.0 / fps)
+    imm_avg = np.ones(3, dtype=np.float32) * 1e-3
+    long_avg = np.ones(3, dtype=np.float32) * 1e-3
     # Music puts almost all its energy below 1 kHz. Without a tilt the top two
     # thirds of the display never move.
     tilt = np.geomspace(1.0, 12.0, bars).astype(np.float32)
@@ -116,6 +128,22 @@ def main():
             perc = min(1.0, float(perc_v.sum()) / perc_ceil)
             harm = min(1.0, float(harm_v.sum()) / harm_ceil)
 
+            # Three bands from the raw (pre-auto-gain) magnitudes, so the
+            # long-term average is meaningful.
+            nb = len(vals)
+            imm = np.array([
+                float(vals[: int(nb * 0.18)].sum()),
+                float(vals[int(nb * 0.18): int(nb * 0.55)].sum()),
+                float(vals[int(nb * 0.55):].sum()),
+            ], dtype=np.float32)
+            rise = imm > imm_avg
+            imm_avg = np.where(rise,
+                               imm_avg * _r_rise + imm * (1 - _r_rise),
+                               imm_avg * _r_fall + imm * (1 - _r_fall))
+            long_avg = long_avg * _r_long + imm * (1 - _r_long)
+            rel = np.clip(imm / np.maximum(long_avg, 1e-6), 0.0, 6.0)
+            att = np.clip(imm_avg / np.maximum(long_avg, 1e-6), 0.0, 6.0)
+
             # Beat tracking is driven by percussive flux -- feeding it the
             # full mix lets sustained notes smear the onset envelope.
             flux = float(np.maximum(0.0, norm - prev_norm).sum())
@@ -136,9 +164,10 @@ def main():
             )
 
             sys.stdout.write(
-                "~%.2f;%.4f;%.3f;%.4f;%.4f;%.4f;%.4f\n"
+                "~%.2f;%.4f;%.3f;%.4f;%.4f;%.4f;%.4f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f\n"
                 % (beat.bpm, beat.phase, beat.conf, perc, harm,
-                   beat.bar_phase, beat.to_next_beat)
+                   beat.bar_phase, beat.to_next_beat,
+                   rel[0], rel[1], rel[2], att[0], att[1], att[2])
             )
 
         sys.stdout.write(";".join(str(int(v * RANGE)) for v in smooth) + ";\n")

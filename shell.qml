@@ -160,6 +160,11 @@ ShellRoot {
           root.harm = parseFloat(f[4]) || 0
           root.barPhase = parseFloat(f[5]) || 0
           root.toNextBeat = parseFloat(f[6]) || 0
+          if (f.length >= 13) {
+            root.relBass = parseFloat(f[7]) || 1;  root.relMid = parseFloat(f[8]) || 1
+            root.relTreb = parseFloat(f[9]) || 1;  root.attBass = parseFloat(f[10]) || 1
+            root.attMid = parseFloat(f[11]) || 1;  root.attTreb = parseFloat(f[12]) || 1
+          }
           return
         }
         var p = line.split(";")
@@ -327,6 +332,14 @@ ShellRoot {
   property real harm: 0
   property real barPhase: 0
   property real toNextBeat: 0
+  // Ratios against a ~4.2s running loudness -- nominal 1.0 regardless of how
+  // the track is mastered. Deviation from 1 is the musical signal.
+  property real relBass: 1
+  property real relMid: 1
+  property real relTreb: 1
+  property real attBass: 1
+  property real attMid: 1
+  property real attTreb: 1
 
   // With exact beat phase these need no detection at all -- they are pure
   // functions of where we are in the beat, so they can never fire late.
@@ -449,6 +462,8 @@ ShellRoot {
       readonly property vector4d uSp7: root.spec ? Qt.vector4d(root.spec[28], root.spec[29], root.spec[30], root.spec[31]) : Qt.vector4d(0,0,0,0)
       readonly property vector4d uMusic: Qt.vector4d(root.beatPhase, root.beatImpact,
                                              root.beatSwell, root.beatConf)
+      readonly property vector4d uRel: Qt.vector4d(root.relBass, root.relMid, root.relTreb, 0)
+      readonly property vector4d uAtt: Qt.vector4d(root.attBass, root.attMid, root.attTreb, 0)
       readonly property vector4d uMusic2: Qt.vector4d(root.perc, root.harm,
                                               root.barPhase, root.slowEnergy)
       readonly property vector4d uPal0: Qt.vector4d(root.palColor(0).r, root.palColor(0).g, root.palColor(0).b, 1)
@@ -522,6 +537,8 @@ ShellRoot {
         property vector4d sp7: win.uSp7
         property vector4d music: win.uMusic
         property vector4d music2: win.uMusic2
+        property vector4d rel: win.uRel
+        property vector4d att: win.uAtt
         property vector4d pal0: win.uPal0
         property vector4d pal1: win.uPal1
         property vector4d pal2: win.uPal2
@@ -533,6 +550,7 @@ ShellRoot {
         sourceItem: fieldPass
         recursive: true
         live: true
+        wrapMode: ShaderEffectSource.Repeat
         hideSource: true
         smooth: true
         textureSize: Qt.size(Math.max(8, win.cols * 2), Math.max(8, win.rows * 4))
@@ -563,6 +581,8 @@ ShellRoot {
         property vector4d sp7: win.uSp7
         property vector4d music: win.uMusic
         property vector4d music2: win.uMusic2
+        property vector4d rel: win.uRel
+        property vector4d att: win.uAtt
         property vector4d pal0: win.uPal0
         property vector4d pal1: win.uPal1
         property vector4d pal2: win.uPal2

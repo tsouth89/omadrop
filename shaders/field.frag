@@ -25,7 +25,9 @@ layout(std140, binding = 0) uniform buf {
     vec4 sp6;
     vec4 sp7;
     vec4 music;     // beatPhase, beatImpact, beatSwell, beatConf
-    vec4 music2;    // percussive, harmonic, barPhase, bpm/200
+    vec4 music2;    // percussive, harmonic, barPhase, slowEnergy
+    vec4 rel;       // bass, mid, treb   (ratio vs running average, nominal 1)
+    vec4 att;       // bass_att, mid_att, treb_att
 };
 layout(binding = 1) uniform sampler2D artTex;
 layout(binding = 2) uniform sampler2D artTexB;
@@ -56,6 +58,8 @@ float swell() { return music.z; }
 float perc() { return music2.x; }
 float harm() { return music2.y; }
 float slowEnergy() { return music2.w; }
+// rel/att are ratios against a ~4.2s running loudness: nominal 1.0,
+// <0.7 quiet, >1.3 loud, spiking to 3-5 on hits.
 
 // Long-form motion. This is the animation; the beat is only an accent on top
 // of it. Without a continuously evolving base every parameter just oscillates
@@ -539,53 +543,88 @@ vec4 field(vec2 uv) {
 
 
 // ---------------------------------------------------------------- warp
-// MilkDrop's warp is a per-VERTEX mesh, not one global transform: different
-// regions of the frame flow in different directions, which is what shears
-// structure into vortices and filaments instead of sliding the whole picture
-// as a rigid body. Evaluated per-pixel here.
-//
-// Each spatial scale is driven by a different part of the spectrum, so the
-// motion itself carries the arrangement -- bass moves the large flow, mids the
-// medium lattice, treble the fine detail.
+// MilkDrop's per-vertex warp chain, in its exact order -- the order is
+// load-bearing. Everything happens in aspect-corrected space and step 6 undoes
+// it, which is what keeps rotation and warp isotropic on a wide screen.
+// Source refs in NOTES.md.
 vec2 warpSample(vec2 uv) {
-    float mt = mtime();
-    vec2 p = (uv - 0.5) * vec2(view.x, 1.0);
-    float r = max(length(p), 0.02);
+    float t = mtime();
 
-    float bassB = spectrum(0.05);
-    float lowB  = spectrum(0.20);
-    float midB  = spectrum(0.45);
-    float hiB   = spectrum(0.80);
+    // Landscape: the long axis gets 1.0.
+    float aspX = 1.0;
+    float aspY = 1.0 / max(view.x, 0.001);
 
-    // Outward flow. Sampling inside the current point makes material travel out.
-    float zoom = 0.016 + slowEnergy() * 0.010 + bassB * 0.020 + beat() * 0.009;
+    vec2 p = vec2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);   // NDC, y up
+    float rad = length(vec2(p.x * aspX, p.y * aspY));
 
-    // Rotation varies WITH RADIUS. Differential rotation is what winds
-    // structure into spirals; a constant angle just turns the frame.
-    float rot = (0.008 + lowB * 0.018) * sin(mt * 0.09)
-              + (0.007 + midB * 0.015) * sin(r * 4.5 - mt * 0.21);
+    // ---- per-frame equations -------------------------------------------
+    // The roam idiom, straight out of the preset corpus: pairs of sines with
+    // incommensurate frequencies (0.22-0.58 rad/s, periods 11-28s). Two sines
+    // whose ratio is irrational never repeat, so the field wanders for minutes
+    // without looping. THIS is where the motion the eye follows comes from --
+    // deliberately not the audio.
+    float zoom = 1.021 + 0.013 * (0.60 * sin(t * 0.339) + 0.40 * sin(t * 0.276));
+    float rot  =       0.020 * (0.60 * sin(t * 0.381) + 0.40 * sin(t * 0.579));
+    float cx   = 0.5 + 0.006 * (0.60 * sin(t * 0.471) + 0.40 * sin(t * 0.297));
+    float cy   = 0.5 + 0.006 * (0.60 * sin(t * 0.379) + 0.40 * sin(t * 0.351));
+    float dx   =       0.0025 * (0.60 * sin(t * 0.234) + 0.40 * sin(t * 0.277));
+    float dy   =       0.0025 * (0.60 * sin(t * 0.284) + 0.40 * sin(t * 0.247));
+    float sx   = 1.0, sy = 1.0;
+    float zoomexp = 1.0;
 
-    float cs = cos(rot), sn = sin(rot);
-    vec2 q = vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs) * (1.0 - zoom);
+    // Audio on top, MilkDrop's conventional bindings: bass -> zoom and rot,
+    // treble -> stretch and fine detail, _att for anything that must not
+    // jitter. These are ratios against a running average, nominal 1.0, so the
+    // deviation from 1 is the musical signal.
+    zoom += 0.022 * (rel.x - 1.0) + 0.010 * (slowEnergy() - 0.5);
+    rot  += 0.013 * (att.x - 1.0) * sin(t * 0.11) + 0.008 * (rel.y - 1.0);
+    sx   += 0.012 * (rel.z - 1.0);
+    sy   += 0.009 * (rel.y - 1.0);
+    zoomexp += 0.10 * (att.x - 1.0);
 
-    // The waveform shapes the FLOW rather than being drawn. Drawing it reads
-    // as an oscilloscope pasted over the art; as displacement it makes the
-    // medium itself ripple with the actual signal -- present everywhere,
-    // legible nowhere as a line.
-    float a01 = atan(p.y, p.x) / 6.2831853 + 0.5;
+    // 1. zoom, radially curved by zoomexp
+    float zoom2 = pow(max(zoom, 0.02), pow(max(zoomexp, 0.05), rad * 2.0 - 1.0));
+    float izoom = 1.0 / zoom2;
+    vec2 q = vec2(p.x * aspX * 0.5 * izoom + 0.5,
+                 -p.y * aspY * 0.5 * izoom + 0.5);
+
+    // 2. stretch about (cx,cy) -- divide by sx/sy
+    q = (q - vec2(cx, cy)) / vec2(sx, sy) + vec2(cx, cy);
+
+    // 3. warp sinusoids. Note these use RAW p, not aspect-corrected, and the
+    // f[] coefficients themselves oscillate -- the warp's spatial frequency
+    // breathes over ~4-7s, which is the cheapest trick here and the thing
+    // that reads as alive rather than as a static ripple.
+    float warpAmt = 0.55 + 0.35 * (rel.y - 1.0);
+    float wt = t * 1.0;
+    float iws = 1.0;
+    vec4 f = vec4(11.68 + 4.0 * cos(wt * 1.413 + 10.0),
+                   8.77 + 3.0 * cos(wt * 1.113 +  7.0),
+                  10.54 + 3.0 * cos(wt * 1.233 +  3.0),
+                  11.49 + 4.0 * cos(wt * 0.933 +  5.0));
+    q.x += warpAmt * 0.0035 * sin(wt * 0.333 + iws * (p.x * f.x - p.y * f.w));
+    q.y += warpAmt * 0.0035 * cos(wt * 0.375 - iws * (p.x * f.z + p.y * f.y));
+    q.x += warpAmt * 0.0035 * cos(wt * 0.753 - iws * (p.x * f.y - p.y * f.z));
+    q.y += warpAmt * 0.0035 * sin(wt * 0.825 + iws * (p.x * f.x + p.y * f.w));
+
+    // The waveform rides along as extra warp displacement, so the medium
+    // ripples with the actual signal without being drawn as a line.
+    float a01 = atan(p.y * aspY, p.x * aspX) / 6.2831853 + 0.5;
     float wv = texture(waveTex, vec2(a01, 0.5)).r * 2.0 - 1.0;
-    vec2 radial = p / r;
-    q += radial * wv * (0.0035 + midB * 0.0065 + bassB * 0.0045);
-    // A second tap at a different angle keeps it from looking purely radial.
-    float wv2 = texture(waveTex, vec2(fract(a01 + 0.33), 0.5)).r * 2.0 - 1.0;
-    q += vec2(-radial.y, radial.x) * wv2 * (0.0020 + hiB * 0.0040);
+    vec2 radial = vec2(p.x * aspX, p.y * aspY) / max(rad, 0.02);
+    q += radial * wv * 0.0045 * (0.5 + 0.5 * rel.y);
 
-    // Sinusoidal warp lattice at three scales, each band-driven.
-    q += vec2(sin(p.y * 3.1 + mt * 0.23), cos(p.x * 2.7 - mt * 0.19)) * (0.0035 + lowB * 0.011);
-    q += vec2(sin(p.y * 7.7 - mt * 0.37), cos(p.x * 6.3 + mt * 0.31)) * (0.0018 + midB * 0.0075);
-    q += vec2(sin(p.y * 16.0 + mt * 0.73), cos(p.x * 14.0 - mt * 0.61)) * (0.0008 + hiB * 0.0038);
+    // 4. rotate about (cx,cy)
+    vec2 d = q - vec2(cx, cy);
+    q = vec2(d.x * cos(rot) - d.y * sin(rot),
+             d.x * sin(rot) + d.y * cos(rot)) + vec2(cx, cy);
 
-    return 0.5 + q / vec2(view.x, 1.0);
+    // 5. translate -- subtract
+    q -= vec2(dx, dy);
+
+    // 6. undo the aspect correction
+    q = (q - 0.5) / vec2(aspX, aspY) + 0.5;
+    return q;
 }
 
 // ------------------------------------------------------------- layers
@@ -620,7 +659,7 @@ vec4 filigreeLayer(vec2 uv) {
     vec2 cellId = floor(uv * vec2(grid.x, grid.y) * 1.5);
     float n = hash(cellId + floor(mt * 11.0));
     float band = spectrum(clamp(0.62 + uv.y * 0.36, 0.0, 1.0));
-    float lit = step(0.978 - band * 0.045 - audio.z * 0.02, n);
+    float lit = step(0.978 - band * 0.045 - max(0.0, rel.z - 1.0) * 0.02, n);
     return vec4(mix(albumColor(uv, anim.x), vec3(1.0), 0.45),
                 lit * (0.25 + audio.z * 0.9));
 }
@@ -636,29 +675,21 @@ vec4 filigreeLayer(vec2 uv) {
 // compositing into the accumulator texture unchanged.
 void main() {
     vec4 f = field(vTex);
-
     vec2 pv = warpSample(vTex);
+    vec4 prev = texture(prevTex, fract(pv));
 
-    vec4 prev = texture(prevTex, clamp(pv, 0.001, 0.999));
-
-    // Decay sets trail length. Higher = longer memory, but too high and the
-    // frame saturates into mush.
-    // Feedback ramps in with the dissolve. The cover reveal should be a
-    // clean, crisp image; trails belong to the abstract phase it devolves
-    // into. This also stops the accumulator smearing the artwork.
+    // Feedback ramps in with the dissolve: the cover reveal stays crisp.
+    // These constants were verified visually; do not adjust them together
+    // with the source weights, or there is no baseline to fall back to.
     float decay = (0.755 + 0.05 * slowEnergy()) * smoothstep(0.0, 0.30, anim.z);
     prev *= decay;
-    // Edges must not feed back or the border smears inward forever.
-    float edge = smoothstep(0.0, 0.06, min(min(pv.x, 1.0 - pv.x), min(pv.y, 1.0 - pv.y)));
-    prev *= edge;
 
-    // Composite the layers, each carrying its own musical stream.
     vec4 bu = burstLayer(vTex);
     vec4 fi = filigreeLayer(vTex);
-    // Layer weights. Everything here is applied EVERY frame on top of a
-    // decayed copy of itself, so these compound hard -- small numbers.
+
     vec4 add = vec4(f.rgb * f.a, f.a) * 0.40
              + vec4(bu.rgb * bu.a, bu.a) * 0.46
              + vec4(fi.rgb * fi.a, fi.a) * 0.26;
+
     fragColor = clamp(prev + add, 0.0, 1.0);
 }

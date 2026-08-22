@@ -25,7 +25,9 @@ layout(std140, binding = 0) uniform buf {
     vec4 sp6;
     vec4 sp7;
     vec4 music;     // beatPhase, beatImpact, beatSwell, beatConf
-    vec4 music2;    // percussive, harmonic, barPhase, bpm/200
+    vec4 music2;    // percussive, harmonic, barPhase, slowEnergy
+    vec4 rel;       // bass, mid, treb   (ratio vs running average, nominal 1)
+    vec4 att;       // bass_att, mid_att, treb_att
 };
 layout(binding = 1) uniform sampler2D fieldTex;   // accumulated field
 layout(binding = 2) uniform sampler2D atlasTex;   // braille glyphs
@@ -44,6 +46,22 @@ float ign(vec2 p) {
 // Display pass. The accumulator holds a smooth continuous field; braille
 // quantisation happens HERE, as a view of it. Quantising before accumulating
 // would stair-step every trail.
+// Video echo: a SECOND sample of the same frame at a different scale and
+// mirroring, blended in. Not a temporal echo despite the name. 314 of 575
+// curated MilkDrop presets use it at alpha 0.3-0.5; it is the highest ratio of
+// visual payoff to code in the whole design, and it is what produces the
+// kaleidoscopic bilateral symmetry people associate with MilkDrop.
+vec4 sampleField(vec2 uv) {
+    // echo_zoom 1.0 is by far the most common in the corpus (321/575): the
+    // echo is a MIRROR at the same scale, which produces bilateral symmetry.
+    // Magnifying it instead (1.55) smears a bright centre over the whole frame
+    // as a uniform wash -- which is exactly what it was doing.
+    float echoZoom = 1.0 + 0.06 * sin(anim.x * 0.041);
+    float echoAlpha = 0.30;
+    vec2 e = (uv - 0.5) / echoZoom * vec2(-1.0, 1.0) + 0.5;   // orientation 1: flip X
+    return mix(texture(fieldTex, uv), texture(fieldTex, fract(e)), echoAlpha);
+}
+
 void main() {
     vec2 cols = grid.xy;
     vec2 atlas = grid.zw;
@@ -60,7 +78,7 @@ void main() {
     for (int dx = 0; dx < 2; dx++) {
         for (int dy = 0; dy < 4; dy++) {
             vec2 dotPos = cell + vec2((float(dx) + 0.5) / 2.0, (float(dy) + 0.5) / 4.0);
-            vec4 s = texture(fieldTex, dotPos / cols);
+            vec4 s = sampleField(dotPos / cols);
             // The accumulator saturates toward 1; without a curve here every
             // dot lights and the frame is a uniform haze again.
             float lvl = smoothstep(0.24, 0.80, s.a);
@@ -80,6 +98,10 @@ void main() {
     }
 
     if (lit < 0.5) { fragColor = vec4(0.0); return; }
+
+    // darken_center: stops the origin blowing out under inward zoom.
+    float dc = length((vTex - 0.5) * vec2(grid.x / max(grid.y, 1.0), 1.0));
+    lit *= 1.0 - 0.42 * smoothstep(0.09, 0.0, dc);
 
     vec3 col = accum / max(weight, 1.0);
     float l = dot(col, vec3(0.299, 0.587, 0.114));

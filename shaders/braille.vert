@@ -25,7 +25,9 @@ layout(std140, binding = 0) uniform buf {
     vec4 sp6;
     vec4 sp7;
     vec4 music;     // beatPhase, beatImpact, beatSwell, beatConf
-    vec4 music2;    // percussive, harmonic, barPhase, bpm/200
+    vec4 music2;    // percussive, harmonic, barPhase, slowEnergy
+    vec4 rel;       // bass, mid, treb   (ratio vs running average, nominal 1)
+    vec4 att;       // bass_att, mid_att, treb_att
 };
 void main() {
     vTex = qt_MultiTexCoord0;
