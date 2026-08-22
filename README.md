@@ -1,4 +1,4 @@
-# ASCIIscope
+# Omadrop
 
 A braille-grid music visualiser for Omarchy. Starts from the album cover and
 devolves into abstract scenes, synced to what is playing.
@@ -29,11 +29,11 @@ accumulating would stair-step every trail.
     imagemagick       (album art prep)
     pipewire          (pw-record)
 
-Run `./bin/asciiscope-doctor` to check them.
+Run `./bin/omadrop-doctor` to check them.
 
 ## Running
 
-    ./bin/asciiscope
+    ./bin/omadrop
 
 Keys, all live:
 
@@ -72,7 +72,7 @@ Four things cost real debugging time. All are silent failures.
 2. **`hideSource: true` stops a `Canvas` from painting.** A plain `Item`
    (e.g. the atlas `Grid`) is unaffected, so the atlas can use it.
 3. **`QSG_RENDER_LOOP` defaults to a ~63fps cap** regardless of workload.
-   `threaded` unlocks the display refresh (131fps+ measured). `bin/asciiscope`
+   `threaded` unlocks the display refresh (131fps+ measured). `bin/omadrop`
    sets it.
 4. **Bake shaders with GLSL ES targets.** Qt asks for 320/310/300/100 es here;
    baking only `150,440` yields "No GLSL shader code found" and a black
@@ -155,7 +155,7 @@ aggregated to **16 log-compressed bands**. Per-bin shape is far too noisy to
 tell a section change from a cymbal. A second smoothing pass supplies
 persistence -- a section change stays different, a transient does not.
 
-`ASCIISCOPE_SCENE=<0-3>` jumps straight to one fully-devolved scene.
+`OMADROP_SCENE=<0-3>` jumps straight to one fully-devolved scene.
 
 **Drive scene motion from a musical clock, not wall time.** `fx.z` accumulates
 at `0.35 + energy*1.9 + onset*2.6`, so every scene's motion speeds up with the
@@ -234,11 +234,11 @@ invisible. Bands need to be wide enough to cover several braille dots.
    ~50% scale and ~0.75 rad rotation before anything reads.
 4. **Pixel-diff metrics lie on sparse dot scenes.** Thin lines moving change
    few pixels, so AE counts stayed at 0.05x even when the gesture was obvious
-   by eye. Use `ASCIISCOPE_FREEZE=1` + `ASCIISCOPE_BEAT=1` and *look* at the
+   by eye. Use `OMADROP_FREEZE=1` + `OMADROP_BEAT=1` and *look* at the
    A/B; the number is only a hint.
 
-Debug env vars: `ASCIISCOPE_SCENE=<0-7>` forces one devolved scene,
-`ASCIISCOPE_BEAT=1` pins the beat high, `ASCIISCOPE_FREEZE=1` freezes both the
+Debug env vars: `OMADROP_SCENE=<0-7>` forces one devolved scene,
+`OMADROP_BEAT=1` pins the beat high, `OMADROP_FREEZE=1` freezes both the
 clocks and the audio so an A/B differs only by the beat.
 
 **Beats push different elements in opposite directions.** `beatWarp()` splits

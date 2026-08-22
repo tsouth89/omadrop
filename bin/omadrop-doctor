@@ -1,6 +1,6 @@
 #!/bin/bash
 # Quick environment check for a fresh machine.
-echo "== ASCIIscope environment =="
+echo "== Omadrop environment =="
 for c in qs grim magick pactl pw-record python3; do
   printf '%-12s %s\n' "$c" "$(command -v $c || echo MISSING)"
 done

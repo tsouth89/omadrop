@@ -4,7 +4,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Mpris
 
-// ASCIIscope -- a braille-grid music visualiser.
+// Omadrop -- a braille-grid music visualiser.
 //
 // Everything visible is drawn by one fragment shader. The CPU's per-frame job
 // is updating a handful of audio uniforms; the GPU evaluates the field at each
@@ -15,7 +15,7 @@ ShellRoot {
   id: root
 
   property string fontFamily: "JetBrainsMono Nerd Font"
-  readonly property string appDir: Quickshell.env("HOME") + "/Projects/asciiscope"
+  readonly property string appDir: Quickshell.env("HOME") + "/Projects/omadrop"
 
   // ------------------------------------------------------- cover art
   // Whichever player is actually playing wins; otherwise fall back to any
@@ -46,16 +46,16 @@ ShellRoot {
   onArtUrlChanged: root.fetchArt(root.artUrl)
   Component.onCompleted: {
     root.fetchArt(root.artUrl)
-    // Dev: ASCIISCOPE_SCENE=<0-3> jumps straight to one fully-devolved scene.
-    var f = parseInt(Quickshell.env("ASCIISCOPE_SCENE") || "-1")
+    // Dev: OMADROP_SCENE=<0-3> jumps straight to one fully-devolved scene.
+    var f = parseInt(Quickshell.env("OMADROP_SCENE") || "-1")
     if (f >= 0) {
       root.sequenceRunning = false
       root.manualDissolve = 1
       root.sceneA = f
       root.sceneB = f
       root.sceneBlend = 0
-      if (Quickshell.env("ASCIISCOPE_BEAT") === "1") root.forceBeat = true
-      console.log("FORCEBEAT env=" + Quickshell.env("ASCIISCOPE_BEAT") + " forceBeat=" + root.forceBeat)
+      if (Quickshell.env("OMADROP_BEAT") === "1") root.forceBeat = true
+      console.log("FORCEBEAT env=" + Quickshell.env("OMADROP_BEAT") + " forceBeat=" + root.forceBeat)
       console.log("FORCED scene=" + f + " sequenceRunning=" + root.sequenceRunning
                   + " manualDissolve=" + root.manualDissolve)
     }
@@ -126,7 +126,7 @@ ShellRoot {
   Process {
     id: source
     running: true
-    command: [Quickshell.env("HOME") + "/Projects/asciiscope/bin/asciiscope-source", "128", "60"]
+    command: [Quickshell.env("HOME") + "/Projects/omadrop/bin/omadrop-source", "128", "60"]
     stdout: SplitParser {
       splitMarker: "\n"
       onRead: function(line) {
@@ -282,8 +282,8 @@ ShellRoot {
   property int onsetCool: 0
   property real pulse: 0
   property bool forceBeat: false
-  property bool freeze: Quickshell.env("ASCIISCOPE_FREEZE") === "1"
-  property real freezeTime: parseFloat(Quickshell.env("ASCIISCOPE_TIME") || "30") || 30
+  property bool freeze: Quickshell.env("OMADROP_FREEZE") === "1"
+  property real freezeTime: parseFloat(Quickshell.env("OMADROP_TIME") || "30") || 30
   property int pulseCool: 0
   property real bassAvg: 0
   property real bassFluxAvg: 0
@@ -326,7 +326,7 @@ ShellRoot {
 
       anchors { top: true; bottom: true; left: true; right: true }
       exclusionMode: ExclusionMode.Ignore
-      WlrLayershell.namespace: "asciiscope"
+      WlrLayershell.namespace: "omadrop"
       WlrLayershell.layer: WlrLayer.Overlay
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
       color: "#000000"

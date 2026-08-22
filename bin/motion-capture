@@ -1,5 +1,5 @@
 #!/bin/bash
-# Capture a burst of frames from a running ASCIIscope and assemble a filmstrip.
+# Capture a burst of frames from a running Omadrop and assemble a filmstrip.
 #
 # Stills cannot show smoothness, drift or stutter -- every motion complaint
 # this project has had is invisible in a single frame. This grabs a rapid
@@ -7,20 +7,20 @@
 # as a contact sheet, and prints the frame-to-frame difference series so
 # stutter shows up as spikes in an otherwise flat line.
 #
-# Usage: motion-capture [frames] [region]     env: ASCIISCOPE_* pass through
+# Usage: motion-capture [frames] [region]     env: OMADROP_* pass through
 set -uo pipefail
 HERE=$(dirname "$(readlink -f "$0")")
 FRAMES=${1:-24}
 REGION=${2:-"880,420 800x450"}
-OUT=${MOTION_OUT:-/tmp/asciiscope-motion}
+OUT=${MOTION_OUT:-/tmp/omadrop-motion}
 rm -rf "$OUT"; mkdir -p "$OUT"
 
-"$HERE/asciiscope" >/dev/null 2>&1 &
+"$HERE/omadrop" >/dev/null 2>&1 &
 APP=$!
 trap 'kill $APP 2>/dev/null' EXIT
 
 for _ in $(seq 1 60); do
-  hyprctl layers 2>/dev/null | grep -q asciiscope && break
+  hyprctl layers 2>/dev/null | grep -q omadrop && break
   sleep 0.1
 done
 sleep "${SETTLE:-3}"

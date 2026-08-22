@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fallback spectrum source for ASCIIscope.
+"""Fallback spectrum source for Omadrop.
 
 Captures the default sink's PipeWire monitor and prints one frame per line in
 cava's raw ascii format (`v;v;...;v;`, values 0..1000). cava is the preferred

@@ -1,4 +1,4 @@
-"""Musical analysis for ASCIIscope.
+"""Musical analysis for Omadrop.
 
 Two pieces the three-band spectrum cannot provide:
 

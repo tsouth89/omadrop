@@ -1,4 +1,4 @@
-# ASCIIscope — working notes
+# Omadrop — working notes
 
 Read this before changing anything. It exists so a future session does not
 re-derive findings that cost real debugging time. `README.md` is the manual;
@@ -112,10 +112,10 @@ three techniques.
 
 ### 1. Deterministic A/B with the debug env vars
 
-    ASCIISCOPE_SCENE=<0-7>   force one fully-devolved scene
-    ASCIISCOPE_BEAT=1        pin the beat high
-    ASCIISCOPE_FREEZE=1      freeze clocks AND audio
-    ASCIISCOPE_TIME=<sec>    set the frozen musical time
+    OMADROP_SCENE=<0-7>   force one fully-devolved scene
+    OMADROP_BEAT=1        pin the beat high
+    OMADROP_FREEZE=1      freeze clocks AND audio
+    OMADROP_TIME=<sec>    set the frozen musical time
 
 `FREEZE` is what makes an A/B mean anything: without it the scene animates and
 run-to-run drift (~5% of pixels) swamps whatever you are measuring.
@@ -134,7 +134,7 @@ found bugs that were invisible on screen:
 
 Capture a spectrum file with:
 
-    timeout 15 ./bin/asciiscope-source 128 60 > /tmp/spec.txt
+    timeout 15 ./bin/omadrop-source 128 60 > /tmp/spec.txt
 
 ### 3. Look at the picture
 
@@ -147,7 +147,7 @@ Also: `grim` will happily capture the desktop if the layer surface has not
 mapped yet. Always wait:
 
     for _ in $(seq 1 40); do
-      hyprctl layers | grep -q asciiscope && break; sleep 1
+      hyprctl layers | grep -q omadrop && break; sleep 1
     done
 
 ---
@@ -163,7 +163,7 @@ mapped yet. Always wait:
 - **`hideSource: true` stops a `Canvas` from painting.** A plain `Item` (the
   glyph atlas `Grid`) is unaffected.
 - **`QSG_RENDER_LOOP` defaults to a ~63fps cap** regardless of workload.
-  `threaded` unlocks the display refresh (131fps+ measured). `bin/asciiscope`
+  `threaded` unlocks the display refresh (131fps+ measured). `bin/omadrop`
   sets it.
 - **Bake shaders with GLSL ES targets.** Qt asks for 320/310/300/100es here;
   baking only `150,440` gives "No GLSL shader code found" and a black screen.

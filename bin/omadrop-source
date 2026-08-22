@@ -7,7 +7,7 @@
 # fallback exists so the plugin runs on a box that has not installed cava
 # yet, speaking the exact same wire format so the QML side never branches.
 #
-# Usage: asciiscope-source [bars] [framerate]
+# Usage: omadrop-source [bars] [framerate]
 
 set -uo pipefail
 
@@ -16,7 +16,7 @@ FRAMERATE=${2:-60}
 HERE=$(dirname "$(readlink -f "$0")")
 
 if command -v cava >/dev/null 2>&1; then
-  conf="${XDG_RUNTIME_DIR:-/tmp}/asciiscope-cava-$$.conf"
+  conf="${XDG_RUNTIME_DIR:-/tmp}/omadrop-cava-$$.conf"
   cat >"$conf" <<CONF
 [general]
 framerate = $FRAMERATE
