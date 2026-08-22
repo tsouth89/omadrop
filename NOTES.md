@@ -101,8 +101,15 @@ detected.
 draws it as a **radial** trace, which sits better with the radial scenes than
 a flat line and gets smeared into ribbons by the feedback warp.
 
-It is the most literally-synced element available -- it IS the signal, not a
-statistic derived from it. That is why MilkDrop leans on it.
+**But do not DRAW it.** A drawn trace reads as an oscilloscope pasted over the
+art -- a UI element sitting on top of abstract work, not part of it. It was
+tried and removed. The waveform is instead used as **displacement in the warp
+field**: the medium ripples with the actual signal, present everywhere and
+legible nowhere as a line. Same "this is literally the audio" property,
+without the decal.
+
+General lesson: importing a MilkDrop *feature* is not the same as importing
+the *principle* behind it. Ask what the feature is for before copying it.
 
 **Layer weights compound.** Every layer is added on top of a decayed copy of
 itself every frame, so the useful range is far smaller than it looks. Body

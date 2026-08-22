@@ -568,6 +568,18 @@ vec2 warpSample(vec2 uv) {
     float cs = cos(rot), sn = sin(rot);
     vec2 q = vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs) * (1.0 - zoom);
 
+    // The waveform shapes the FLOW rather than being drawn. Drawing it reads
+    // as an oscilloscope pasted over the art; as displacement it makes the
+    // medium itself ripple with the actual signal -- present everywhere,
+    // legible nowhere as a line.
+    float a01 = atan(p.y, p.x) / 6.2831853 + 0.5;
+    float wv = texture(waveTex, vec2(a01, 0.5)).r * 2.0 - 1.0;
+    vec2 radial = p / r;
+    q += radial * wv * (0.0035 + midB * 0.0065 + bassB * 0.0045);
+    // A second tap at a different angle keeps it from looking purely radial.
+    float wv2 = texture(waveTex, vec2(fract(a01 + 0.33), 0.5)).r * 2.0 - 1.0;
+    q += vec2(-radial.y, radial.x) * wv2 * (0.0020 + hiB * 0.0040);
+
     // Sinusoidal warp lattice at three scales, each band-driven.
     q += vec2(sin(p.y * 3.1 + mt * 0.23), cos(p.x * 2.7 - mt * 0.19)) * (0.0035 + lowB * 0.011);
     q += vec2(sin(p.y * 7.7 - mt * 0.37), cos(p.x * 6.3 + mt * 0.31)) * (0.0018 + midB * 0.0075);
@@ -581,29 +593,6 @@ vec2 warpSample(vec2 uv) {
 // arrangement is visible: you can watch the drums move one thing while the
 // harmony moves another. Everything answering one aggregate signal is what
 // made earlier builds read as a single thump.
-
-// The oscilloscope trace. This is the most literally-synced element there is
-// -- it IS the signal, not a statistic derived from it, which is why MilkDrop
-// leans on it so hard. Drawn as a radial trace so it sits with the radial
-// scenes; the feedback warp then smears it into ribbons over following frames.
-vec4 waveLayer(vec2 uv) {
-    vec2 p = (uv - 0.5) * vec2(view.x, 1.0);
-    float r = length(p);
-    float a = atan(p.y, p.x) / 6.2831853 + 0.5;
-    float amp = texture(waveTex, vec2(a, 0.5)).r * 2.0 - 1.0;
-
-    // Radius breathes slowly so the ring is not pinned to one size.
-    float base = 0.20 + 0.05 * sin(mtime() * 0.061) + slowEnergy() * 0.05;
-    float target = base + amp * (0.055 + slowEnergy() * 0.05);
-
-    float line = smoothstep(0.011, 0.0, abs(r - target));
-    // A second, quieter trace at a different phase gives it depth.
-    float amp2 = texture(waveTex, vec2(fract(a + 0.5), 0.5)).r * 2.0 - 1.0;
-    line += 0.45 * smoothstep(0.008, 0.0, abs(r - (base * 1.6 + amp2 * 0.045)));
-
-    vec3 c = mix(albumColor(uv, anim.x), vec3(1.0), 0.35);
-    return vec4(c, clamp(line, 0.0, 1.0));
-}
 
 // Percussive: expanding rings released by drum hits (HPSS percussive stream).
 vec4 burstLayer(vec2 uv) {
@@ -666,12 +655,10 @@ void main() {
     // Composite the layers, each carrying its own musical stream.
     vec4 bu = burstLayer(vTex);
     vec4 fi = filigreeLayer(vTex);
-    vec4 wv = waveLayer(vTex);
     // Layer weights. Everything here is applied EVERY frame on top of a
     // decayed copy of itself, so these compound hard -- small numbers.
-    vec4 add = vec4(f.rgb * f.a, f.a) * 0.34
-             + vec4(bu.rgb * bu.a, bu.a) * 0.42
-             + vec4(fi.rgb * fi.a, fi.a) * 0.24
-             + vec4(wv.rgb * wv.a, wv.a) * 0.52;
+    vec4 add = vec4(f.rgb * f.a, f.a) * 0.40
+             + vec4(bu.rgb * bu.a, bu.a) * 0.46
+             + vec4(fi.rgb * fi.a, fi.a) * 0.26;
     fragColor = clamp(prev + add, 0.0, 1.0);
 }
