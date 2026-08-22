@@ -536,6 +536,82 @@ vec4 field(vec2 uv) {
     return c;
 }
 
+
+// ---------------------------------------------------------------- warp
+// MilkDrop's warp is a per-VERTEX mesh, not one global transform: different
+// regions of the frame flow in different directions, which is what shears
+// structure into vortices and filaments instead of sliding the whole picture
+// as a rigid body. Evaluated per-pixel here.
+//
+// Each spatial scale is driven by a different part of the spectrum, so the
+// motion itself carries the arrangement -- bass moves the large flow, mids the
+// medium lattice, treble the fine detail.
+vec2 warpSample(vec2 uv) {
+    float mt = mtime();
+    vec2 p = (uv - 0.5) * vec2(view.x, 1.0);
+    float r = max(length(p), 0.02);
+
+    float bassB = spectrum(0.05);
+    float lowB  = spectrum(0.20);
+    float midB  = spectrum(0.45);
+    float hiB   = spectrum(0.80);
+
+    // Outward flow. Sampling inside the current point makes material travel out.
+    float zoom = 0.016 + slowEnergy() * 0.010 + bassB * 0.020 + beat() * 0.009;
+
+    // Rotation varies WITH RADIUS. Differential rotation is what winds
+    // structure into spirals; a constant angle just turns the frame.
+    float rot = (0.008 + lowB * 0.018) * sin(mt * 0.09)
+              + (0.007 + midB * 0.015) * sin(r * 4.5 - mt * 0.21);
+
+    float cs = cos(rot), sn = sin(rot);
+    vec2 q = vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs) * (1.0 - zoom);
+
+    // Sinusoidal warp lattice at three scales, each band-driven.
+    q += vec2(sin(p.y * 3.1 + mt * 0.23), cos(p.x * 2.7 - mt * 0.19)) * (0.0035 + lowB * 0.011);
+    q += vec2(sin(p.y * 7.7 - mt * 0.37), cos(p.x * 6.3 + mt * 0.31)) * (0.0018 + midB * 0.0075);
+    q += vec2(sin(p.y * 16.0 + mt * 0.73), cos(p.x * 14.0 - mt * 0.61)) * (0.0008 + hiB * 0.0038);
+
+    return 0.5 + q / vec2(view.x, 1.0);
+}
+
+// ------------------------------------------------------------- layers
+// Separate visual elements bound to separate musical streams, so the
+// arrangement is visible: you can watch the drums move one thing while the
+// harmony moves another. Everything answering one aggregate signal is what
+// made earlier builds read as a single thump.
+
+// Percussive: expanding rings released by drum hits (HPSS percussive stream).
+vec4 burstLayer(vec2 uv) {
+    float mt = mtime();
+    vec2 p = (uv - 0.5) * vec2(view.x, 1.0);
+    float acc = 0.0;
+    for (int i = 0; i < 3; i++) {
+        float fi = float(i);
+        float cyc = mt * 0.55 + fi * 0.41;
+        float gen = floor(cyc);
+        float age = fract(cyc);
+        vec2 c = (vec2(hash(vec2(gen, fi * 3.7)),
+                       hash(vec2(gen, fi * 3.7 + 11.0))) - 0.5) * 1.15;
+        float rad = age * (0.26 + perc() * 0.34);
+        float ring = smoothstep(0.042, 0.0, abs(length(p - c) - rad));
+        acc += ring * (1.0 - age) * (1.0 - age);
+    }
+    return vec4(albumColor(uv, anim.x), clamp(acc * (0.25 + perc() * 1.6), 0.0, 1.0));
+}
+
+// Treble: fine sparkle at high spatial frequency -- the detail you notice on
+// hats and cymbals, deliberately too small to read as a shape.
+vec4 filigreeLayer(vec2 uv) {
+    float mt = mtime();
+    vec2 cellId = floor(uv * vec2(grid.x, grid.y) * 1.5);
+    float n = hash(cellId + floor(mt * 11.0));
+    float band = spectrum(clamp(0.62 + uv.y * 0.36, 0.0, 1.0));
+    float lit = step(0.978 - band * 0.045 - audio.z * 0.02, n);
+    return vec4(mix(albumColor(uv, anim.x), vec3(1.0), 0.45),
+                lit * (0.25 + audio.z * 0.9));
+}
+
 // Field pass. Renders the scene into an accumulator that samples ITSELF
 // through a slow warp each frame and decays. This is MilkDrop's core trick:
 // nothing here draws a trail explicitly -- trails, tunnels, smoke and drifting
@@ -548,18 +624,7 @@ vec4 field(vec2 uv) {
 void main() {
     vec4 f = field(vTex);
 
-    // Feedback warp: a slow zoom/rotate/drift, nudged by the music. Keep it
-    // small -- a few percent per frame compounds into strong motion because
-    // it is applied again to its own output every frame.
-    float mt = mtime();
-    float zoom = 0.978 - 0.012 * slowEnergy() - 0.008 * beat();
-    float rot  = 0.0045 * sin(mt * 0.053) + 0.0022 * sin(mt * 0.017)
-               + 0.0030 * beat() * sin(mt * 0.11);
-    vec2 drift = vec2(0.0016 * sin(mt * 0.031), 0.0013 * cos(mt * 0.023));
-
-    vec2 c = vTex - 0.5;
-    float cs = cos(rot), sn = sin(rot);
-    vec2 pv = 0.5 + vec2(c.x * cs - c.y * sn, c.x * sn + c.y * cs) * zoom + drift;
+    vec2 pv = warpSample(vTex);
 
     vec4 prev = texture(prevTex, clamp(pv, 0.001, 0.999));
 
@@ -574,6 +639,11 @@ void main() {
     float edge = smoothstep(0.0, 0.06, min(min(pv.x, 1.0 - pv.x), min(pv.y, 1.0 - pv.y)));
     prev *= edge;
 
-    vec4 add = vec4(f.rgb * f.a, f.a) * 0.45;
+    // Composite the layers, each carrying its own musical stream.
+    vec4 bu = burstLayer(vTex);
+    vec4 fi = filigreeLayer(vTex);
+    vec4 add = vec4(f.rgb * f.a, f.a) * 0.42
+             + vec4(bu.rgb * bu.a, bu.a) * 0.55
+             + vec4(fi.rgb * fi.a, fi.a) * 0.38;
     fragColor = clamp(prev + add, 0.0, 1.0);
 }

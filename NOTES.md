@@ -71,9 +71,39 @@ Tuning notes, all learned the hard way:
 - **Gate feedback by `dissolve`.** The cover reveal must stay crisp; trails
   belong to the abstract phase. Feedback ramps in as the cover devolves.
 
+### Warp field and musical layers — IMPLEMENTED
+
+**The warp must be per-pixel, not a global transform.** The first feedback
+build used a single zoom+rotate for the whole frame, which slides the picture
+as a rigid body. MilkDrop's warp is a per-vertex mesh: different regions flow
+in different directions, and that is what shears structure into vortices and
+filaments. `warpSample()` in `field.frag` evaluates it per pixel.
+
+Two details that matter more than the constants:
+
+- **Rotation must vary with radius.** Differential rotation winds structure
+  into spirals; a constant angle just turns the frame.
+- **Each spatial scale is driven by a different band** (bass -> large flow,
+  mid -> medium lattice, treble -> fine detail), so the motion itself carries
+  the arrangement.
+
+**Layers bound to musical streams.** `burstLayer` (HPSS percussive -> expanding
+rings from drum hits) and `filigreeLayer` (treble -> fine sparkle) composite
+alongside the scene body. Everything answering one aggregate signal is what
+made earlier builds read as a single thump no matter how well onsets were
+detected.
+
 ### Next, in order
 
-1. **Autonomous agents.** A few hundred particles with their own velocities and
+1. **Waveform rendering.** MilkDrop draws the actual oscilloscope trace and it
+   is a huge part of the identity. We currently keep NO time-domain data --
+   the pipeline discards raw samples after the FFT. Needs a downsampled
+   waveform on the wire and a curve drawn into the field.
+2. **Song-structure awareness.** Beat tracking gives position in the bar, not
+   position in the song; verse and chorus look identical. Novelty groundwork
+   exists in `analysis.py`.
+3. **Preset system.** MilkDrop's depth is its preset library, not its renderer.
+4. **Autonomous agents.** A few hundred particles with their own velocities and
    lifetimes, advected by a slowly-evolving flow field, leaving trails in the
    accumulator. These are the things the eye follows. Position state can live
    in a small ping-ponged texture, or in QML JS if the count stays low.
