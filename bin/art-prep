@@ -1,0 +1,56 @@
+#!/bin/bash
+# Normalise album art for braille rendering.
+#
+# Covers arrive with wildly different exposure -- "Only One" has a mean
+# luminance of 0.05. The dither threshold is fixed, so without per-cover
+# normalisation a dark record renders as an empty screen. Solve for the gamma
+# that lands the mean on a target rather than guessing a fixed curve.
+set -euo pipefail
+
+IN=${1:?usage: art-prep <in> <out> [target-mean]}
+OUT=${2:?usage: art-prep <in> <out> [target-mean]}
+TARGET=${3:-0.42}
+SIZE=${SIZE:-1200}
+
+work=$(mktemp --suffix=.png)
+trap 'rm -f "$work"' EXIT
+
+# Many covers inset the artwork inside a flat border ("Only One" is a photo
+# in a black square). Trim that first, or normalisation spends its whole range
+# on the border and amplifies its grain into noise.
+magick "$IN" -auto-orient -colorspace sRGB \
+  -bordercolor black -border 1 -fuzz 12% -trim +repage \
+  -resize "${SIZE}x${SIZE}^" -gravity center -extent "${SIZE}x${SIZE}" \
+  -despeckle -clahe 8x8%+128+2 -contrast-stretch 0.3%x0.3% "$work"
+
+# mean_out = mean_in^(1/g) only holds for a uniform distribution, so solve
+# once and then refine -- real covers converge in two or three passes.
+gamma=1.0
+mean=$(magick "$work" -colorspace Gray -format "%[fx:mean]" info:)
+start=$mean
+for _ in 1 2 3 4; do
+  gamma=$(awk -v m="$mean" -v t="$TARGET" -v g="$gamma" 'BEGIN {
+    if (m <= 0.001) m = 0.001
+    if (m >= 0.999) m = 0.999
+    ng = g * (log(m) / log(t))
+    if (ng < 0.10) ng = 0.10
+    if (ng > 8.0)  ng = 8.0
+    printf "%.4f", ng
+  }')
+  mean=$(magick "$work" -gamma "$gamma" -colorspace Gray -format "%[fx:mean]" info:)
+  done_yet=$(awk -v m="$mean" -v t="$TARGET" 'BEGIN { print (m > t*0.94 && m < t*1.06) ? 1 : 0 }')
+  [[ $done_yet == 1 ]] && break
+done
+mean=$start
+
+# Posterise to a limited palette derived from the cover itself. Flat colour
+# areas are what make it read as screen-printed rather than photographic --
+# and it costs nothing at render time. -dither None keeps the areas flat;
+# the braille dither supplies all the texture we want.
+COLORS=${COLORS:-14}
+# Gamma brightening pushes colour toward white -- it roughly halves saturation
+# on a dark cover. Restore it afterwards, and lean past the original: many
+# covers are muted and this is a visualiser, not a print proof.
+SAT=${SAT:-265}
+magick "$work" -gamma "$gamma" -modulate "100,$SAT,100" -colors "$COLORS" -dither None "$OUT"
+echo "art-prep: mean $mean -> gamma $gamma -> $(magick "$OUT" -colorspace Gray -format '%[fx:mean]' info:)" >&2

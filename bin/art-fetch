@@ -1,0 +1,33 @@
+#!/bin/bash
+# Resolve an MPRIS artUrl to a prepared local PNG and print its path.
+#
+# Cached by a hash of the URL: re-playing a track is instant, and each track
+# gets a distinct filename so QML's Image cache can never serve a stale cover.
+set -euo pipefail
+
+url=${1:?usage: art-fetch <artUrl> [cachedir]}
+here=$(dirname "$(readlink -f "$0")")
+cachedir=${2:-$here/../cache}
+mkdir -p "$cachedir"
+
+key=$(printf '%s' "$url" | sha256sum | cut -c1-16)
+out="$cachedir/art-$key.png"
+[[ -f $out ]] && { echo "$out"; exit 0; }
+
+tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
+case "$url" in
+  file://*) cp "${url#file://}" "$tmp" ;;
+  http://*|https://*) curl -sfL --max-time 10 -o "$tmp" "$url" ;;
+  *) echo "art-fetch: unsupported url scheme: $url" >&2; exit 1 ;;
+esac
+
+[[ -s $tmp ]] || { echo "art-fetch: empty download" >&2; exit 1; }
+"$here/art-prep" "$tmp" "$out" >&2
+
+# Dominant colours, for tinting the abstract scenes. Sampling the cover
+# directly drags its imagery into every scene; a palette carries the record's
+# colour with none of its structure.
+magick "$out" -modulate 100,190,100 -colors 5 -unique-colors -depth 8 txt:- 2>/dev/null \
+  | grep -oE '#[0-9A-Fa-f]{6}' | head -5 > "$out.pal" || true
+
+echo "$out"

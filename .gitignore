@@ -1,0 +1,3 @@
+cache/
+*.qsb
+__pycache__/

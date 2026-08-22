@@ -1,0 +1,5 @@
+#!/bin/bash
+# The default Qt render loop caps this at ~63fps regardless of workload;
+# threaded syncs to the actual display refresh instead.
+export QSG_RENDER_LOOP=${QSG_RENDER_LOOP:-threaded}
+exec qs -p "$(dirname "$(readlink -f "$0")")/../shell.qml" "$@"

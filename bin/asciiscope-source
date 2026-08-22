@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Emit one spectrum frame per line on stdout, in cava's raw ascii format:
+#   v;v;v;...;v;
+# with every value in 0..1000. cava does this natively and does it better --
+# it owns the PipeWire capture, the FFT, and the smoothing. The python
+# fallback exists so the plugin runs on a box that has not installed cava
+# yet, speaking the exact same wire format so the QML side never branches.
+#
+# Usage: asciiscope-source [bars] [framerate]
+
+set -uo pipefail
+
+BARS=${1:-64}
+FRAMERATE=${2:-60}
+HERE=$(dirname "$(readlink -f "$0")")
+
+if command -v cava >/dev/null 2>&1; then
+  conf="${XDG_RUNTIME_DIR:-/tmp}/asciiscope-cava-$$.conf"
+  cat >"$conf" <<CONF
+[general]
+framerate = $FRAMERATE
+bars = $BARS
+autosens = 1
+
+[input]
+method = pipewire
+source = auto
+
+[output]
+method = raw
+raw_target = /dev/stdout
+data_format = ascii
+ascii_max_range = 1000
+channels = mono
+CONF
+  # Cleaning up on exit would need a trap, and a trap needs a non-exec'd
+  # child -- which would leave cava orphaned when the shell kills this
+  # process. A few bytes in the runtime dir is the cheaper trade.
+  exec cava -p "$conf"
+fi
+
+exec python3 "$HERE/pw-spectrum.py" --bars "$BARS" --framerate "$FRAMERATE"
