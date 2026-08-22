@@ -1,0 +1,59 @@
+#!/bin/bash
+# Capture a burst of frames from a running ASCIIscope and assemble a filmstrip.
+#
+# Stills cannot show smoothness, drift or stutter -- every motion complaint
+# this project has had is invisible in a single frame. This grabs a rapid
+# sequence from a small region (grim is much faster on a crop), lays them out
+# as a contact sheet, and prints the frame-to-frame difference series so
+# stutter shows up as spikes in an otherwise flat line.
+#
+# Usage: motion-capture [frames] [region]     env: ASCIISCOPE_* pass through
+set -uo pipefail
+HERE=$(dirname "$(readlink -f "$0")")
+FRAMES=${1:-24}
+REGION=${2:-"880,420 800x450"}
+OUT=${MOTION_OUT:-/tmp/asciiscope-motion}
+rm -rf "$OUT"; mkdir -p "$OUT"
+
+"$HERE/asciiscope" >/dev/null 2>&1 &
+APP=$!
+trap 'kill $APP 2>/dev/null' EXIT
+
+for _ in $(seq 1 60); do
+  hyprctl layers 2>/dev/null | grep -q asciiscope && break
+  sleep 0.1
+done
+sleep "${SETTLE:-3}"
+
+start=$(date +%s.%N)
+for i in $(seq -w 1 "$FRAMES"); do
+  grim -g "$REGION" "$OUT/f$i.png"
+done
+end=$(date +%s.%N)
+
+kill $APP 2>/dev/null; trap - EXIT
+fps=$(awk -v s="$start" -v e="$end" -v n="$FRAMES" 'BEGIN{printf "%.1f", n/(e-s)}')
+echo "captured $FRAMES frames at ~${fps} fps into $OUT"
+
+magick montage "$OUT"/f*.png -tile 6x -geometry 260x146+2+2 -background '#111' "$OUT/strip.png"
+echo "filmstrip: $OUT/strip.png"
+
+# Difference series: smooth motion gives a flat line, stutter gives spikes.
+python3 - "$OUT" "$fps" <<'PY'
+import subprocess, sys, glob, os
+d, fps = sys.argv[1], sys.argv[2]
+fs = sorted(glob.glob(os.path.join(d, "f*.png")))
+vals = []
+for a, b in zip(fs, fs[1:]):
+    out = subprocess.run(["magick","compare","-metric","RMSE",a,b,"null:"],
+                         capture_output=True, text=True).stderr
+    try: vals.append(float(out.split("(")[1].split(")")[0]))
+    except Exception: vals.append(0.0)
+if not vals: raise SystemExit
+mean = sum(vals)/len(vals)
+peak = max(vals)
+jitter = (peak/mean) if mean else 0
+print(f"frame-to-frame change: mean={mean:.4f} peak={peak:.4f} peak/mean={jitter:.2f}")
+print("  (peak/mean near 1 = steady motion; >2.5 = lurching)")
+print("  " + "".join("#" if v > mean*1.6 else ("+" if v > mean*0.6 else ".") for v in vals))
+PY

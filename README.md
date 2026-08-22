@@ -8,10 +8,18 @@ devolves into abstract scenes, synced to what is playing.
 > session. Most of them fail *silently* — a black screen, a stale shader, a
 > detector that never fires — so they are expensive to rediscover.
 
-**Goal:** MilkDrop for Omarchy, in ASCII. Currently about 80% of a good
-visualiser but not yet MilkDrop — see "Where this is going" in NOTES.md. The
-key missing piece is **frame feedback**; nothing persists between frames, so
-nothing trails or can be followed.
+**Goal:** MilkDrop for Omarchy, in ASCII.
+
+Rendering is a two-pass feedback chain, which is MilkDrop's core mechanism:
+
+    field.frag   -> accumulator (recursive ShaderEffectSource, 1 texel/dot)
+                    samples ITSELF through a slow warp, decays, adds new field
+    display.frag -> braille-quantises the accumulator for display
+
+Trails, tunnels, smoke and drifting structure are not drawn by anything; they
+all fall out of feeding the previous frame back through a warp. Quantisation
+happens last, as a *view* of the accumulated field — quantising before
+accumulating would stair-step every trail.
 
 ## Requirements
 

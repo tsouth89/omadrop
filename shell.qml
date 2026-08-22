@@ -401,42 +401,112 @@ ShellRoot {
         onStatusChanged: if (status === Image.Ready) root.revealArt(root.artPathB)
       }
 
+      readonly property vector4d uGrid: Qt.vector4d(win.cols, win.rows, win.atlasCols, 16)
+      readonly property vector4d uAudio: Qt.vector4d(root.bass, root.mid, root.treble, root.energy)
+      readonly property vector4d uAnim: Qt.vector4d(clock.t, root.onset, root.dissolve, root.artFade)
+        // aspect, artScale (1.0 = cover fills the full height), gain, vignette
+        // aspect, zoom (1.0 = cover bleeds to full width), gain, edge amount
+      readonly property vector4d uView: Qt.vector4d(width / Math.max(1, height), root.zoom, root.gain, root.edge)
+        // Monochrome covers get tinted toward the theme accent instead of
+        // rendering as grey dots.
+      readonly property vector4d uTint: Qt.vector4d(root.tintColor.r, root.tintColor.g,
+                                            root.tintColor.b, root.tintAmount)
+      readonly property vector4d uFx: Qt.vector4d(root.vignette, root.hasArt ? 1 : 0, root.musicalTime, root.forceBeat ? 1.0 : root.pulse)
+      readonly property vector4d uScene: Qt.vector4d(root.sceneA, root.sceneB, root.sceneBlend, 0)
+      readonly property vector4d uSp0: root.spec ? Qt.vector4d(root.spec[0], root.spec[1], root.spec[2], root.spec[3]) : Qt.vector4d(0,0,0,0)
+      readonly property vector4d uSp1: root.spec ? Qt.vector4d(root.spec[4], root.spec[5], root.spec[6], root.spec[7]) : Qt.vector4d(0,0,0,0)
+      readonly property vector4d uSp2: root.spec ? Qt.vector4d(root.spec[8], root.spec[9], root.spec[10], root.spec[11]) : Qt.vector4d(0,0,0,0)
+      readonly property vector4d uSp3: root.spec ? Qt.vector4d(root.spec[12], root.spec[13], root.spec[14], root.spec[15]) : Qt.vector4d(0,0,0,0)
+      readonly property vector4d uSp4: root.spec ? Qt.vector4d(root.spec[16], root.spec[17], root.spec[18], root.spec[19]) : Qt.vector4d(0,0,0,0)
+      readonly property vector4d uSp5: root.spec ? Qt.vector4d(root.spec[20], root.spec[21], root.spec[22], root.spec[23]) : Qt.vector4d(0,0,0,0)
+      readonly property vector4d uSp6: root.spec ? Qt.vector4d(root.spec[24], root.spec[25], root.spec[26], root.spec[27]) : Qt.vector4d(0,0,0,0)
+      readonly property vector4d uSp7: root.spec ? Qt.vector4d(root.spec[28], root.spec[29], root.spec[30], root.spec[31]) : Qt.vector4d(0,0,0,0)
+      readonly property vector4d uMusic: Qt.vector4d(root.beatPhase, root.beatImpact,
+                                             root.beatSwell, root.beatConf)
+      readonly property vector4d uMusic2: Qt.vector4d(root.perc, root.harm,
+                                              root.barPhase, root.slowEnergy)
+      readonly property vector4d uPal0: Qt.vector4d(root.palColor(0).r, root.palColor(0).g, root.palColor(0).b, 1)
+      readonly property vector4d uPal1: Qt.vector4d(root.palColor(1).r, root.palColor(1).g, root.palColor(1).b, 1)
+      readonly property vector4d uPal2: Qt.vector4d(root.palColor(2).r, root.palColor(2).g, root.palColor(2).b, 1)
+      readonly property vector4d uPal3: Qt.vector4d(root.palColor(3).r, root.palColor(3).g, root.palColor(3).b, 1)
+
+      // ------------------------------------------------- feedback chain
+      // The field pass renders into an accumulator that samples ITSELF each
+      // frame through a slow warp and decays. That single mechanism is what
+      // produces trails, tunnels and drifting structure -- the things the eye
+      // can actually follow. Rendered at exactly one texel per braille dot.
+      ShaderEffect {
+        id: fieldPass
+        width: Math.max(8, win.cols * 2)
+        height: Math.max(8, win.rows * 4)
+        blending: false
+        vertexShader: Qt.resolvedUrl("shaders/braille.vert.qsb")
+        fragmentShader: Qt.resolvedUrl("shaders/field.frag.qsb")
+        property variant artTex: artImageA
+        property variant artTexB: artImageB
+        property variant prevTex: accum
+        property vector4d grid: win.uGrid
+        property vector4d audio: win.uAudio
+        property vector4d anim: win.uAnim
+        property vector4d view: win.uView
+        property vector4d tint: win.uTint
+        property vector4d fx: win.uFx
+        property vector4d scene: win.uScene
+        property vector4d sp0: win.uSp0
+        property vector4d sp1: win.uSp1
+        property vector4d sp2: win.uSp2
+        property vector4d sp3: win.uSp3
+        property vector4d sp4: win.uSp4
+        property vector4d sp5: win.uSp5
+        property vector4d sp6: win.uSp6
+        property vector4d sp7: win.uSp7
+        property vector4d music: win.uMusic
+        property vector4d music2: win.uMusic2
+        property vector4d pal0: win.uPal0
+        property vector4d pal1: win.uPal1
+        property vector4d pal2: win.uPal2
+        property vector4d pal3: win.uPal3
+      }
+
+      ShaderEffectSource {
+        id: accum
+        sourceItem: fieldPass
+        recursive: true
+        live: true
+        hideSource: true
+        smooth: true
+        textureSize: Qt.size(Math.max(8, win.cols * 2), Math.max(8, win.rows * 4))
+      }
+
+      // Display pass: braille-quantise the accumulator. Quantising before
+      // accumulating would stair-step every trail.
       ShaderEffect {
         anchors.fill: parent
         vertexShader: Qt.resolvedUrl("shaders/braille.vert.qsb")
-        fragmentShader: Qt.resolvedUrl("shaders/braille.frag.qsb")
-
-        property vector4d grid: Qt.vector4d(win.cols, win.rows, win.atlasCols, 16)
-        property vector4d audio: Qt.vector4d(root.bass, root.mid, root.treble, root.energy)
-        property vector4d anim: Qt.vector4d(clock.t, root.onset, root.dissolve, root.artFade)
-        // aspect, artScale (1.0 = cover fills the full height), gain, vignette
-        // aspect, zoom (1.0 = cover bleeds to full width), gain, edge amount
-        property vector4d view: Qt.vector4d(width / Math.max(1, height), root.zoom, root.gain, root.edge)
-        // Monochrome covers get tinted toward the theme accent instead of
-        // rendering as grey dots.
-        property vector4d tint: Qt.vector4d(root.tintColor.r, root.tintColor.g,
-                                            root.tintColor.b, root.tintAmount)
-        property vector4d fx: Qt.vector4d(root.vignette, root.hasArt ? 1 : 0, root.musicalTime, root.forceBeat ? 1.0 : root.pulse)
-        property vector4d scene: Qt.vector4d(root.sceneA, root.sceneB, root.sceneBlend, 0)
-        property vector4d sp0: root.spec ? Qt.vector4d(root.spec[0], root.spec[1], root.spec[2], root.spec[3]) : Qt.vector4d(0,0,0,0)
-        property vector4d sp1: root.spec ? Qt.vector4d(root.spec[4], root.spec[5], root.spec[6], root.spec[7]) : Qt.vector4d(0,0,0,0)
-        property vector4d sp2: root.spec ? Qt.vector4d(root.spec[8], root.spec[9], root.spec[10], root.spec[11]) : Qt.vector4d(0,0,0,0)
-        property vector4d sp3: root.spec ? Qt.vector4d(root.spec[12], root.spec[13], root.spec[14], root.spec[15]) : Qt.vector4d(0,0,0,0)
-        property vector4d sp4: root.spec ? Qt.vector4d(root.spec[16], root.spec[17], root.spec[18], root.spec[19]) : Qt.vector4d(0,0,0,0)
-        property vector4d sp5: root.spec ? Qt.vector4d(root.spec[20], root.spec[21], root.spec[22], root.spec[23]) : Qt.vector4d(0,0,0,0)
-        property vector4d sp6: root.spec ? Qt.vector4d(root.spec[24], root.spec[25], root.spec[26], root.spec[27]) : Qt.vector4d(0,0,0,0)
-        property vector4d sp7: root.spec ? Qt.vector4d(root.spec[28], root.spec[29], root.spec[30], root.spec[31]) : Qt.vector4d(0,0,0,0)
-        property vector4d music: Qt.vector4d(root.beatPhase, root.beatImpact,
-                                             root.beatSwell, root.beatConf)
-        property vector4d music2: Qt.vector4d(root.perc, root.harm,
-                                              root.barPhase, root.slowEnergy)
-        property vector4d pal0: Qt.vector4d(root.palColor(0).r, root.palColor(0).g, root.palColor(0).b, 1)
-        property vector4d pal1: Qt.vector4d(root.palColor(1).r, root.palColor(1).g, root.palColor(1).b, 1)
-        property vector4d pal2: Qt.vector4d(root.palColor(2).r, root.palColor(2).g, root.palColor(2).b, 1)
-        property vector4d pal3: Qt.vector4d(root.palColor(3).r, root.palColor(3).g, root.palColor(3).b, 1)
-        property variant artTex: artImageA
-        property variant artTexB: artImageB
+        fragmentShader: Qt.resolvedUrl("shaders/display.frag.qsb")
+        property variant fieldTex: accum
         property variant atlasTex: atlasTexture
+        property vector4d grid: win.uGrid
+        property vector4d audio: win.uAudio
+        property vector4d anim: win.uAnim
+        property vector4d view: win.uView
+        property vector4d tint: win.uTint
+        property vector4d fx: win.uFx
+        property vector4d scene: win.uScene
+        property vector4d sp0: win.uSp0
+        property vector4d sp1: win.uSp1
+        property vector4d sp2: win.uSp2
+        property vector4d sp3: win.uSp3
+        property vector4d sp4: win.uSp4
+        property vector4d sp5: win.uSp5
+        property vector4d sp6: win.uSp6
+        property vector4d sp7: win.uSp7
+        property vector4d music: win.uMusic
+        property vector4d music2: win.uMusic2
+        property vector4d pal0: win.uPal0
+        property vector4d pal1: win.uPal1
+        property vector4d pal2: win.uPal2
+        property vector4d pal3: win.uPal3
       }
 
       Component.onCompleted: Qt.callLater(function() { atlasTexture.scheduleUpdate() })

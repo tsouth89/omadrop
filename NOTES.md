@@ -19,9 +19,10 @@ working. What it still is *not* is autonomous. The user's words: "animations
 that are actually animated and doing stuff in the background, not tied to the
 beat, that you can follow."
 
-### The architectural gap — frame feedback
+### Frame feedback — IMPLEMENTED
 
-This is the single most important thing in this file.
+This was the single biggest gap and it is now built. Kept here because the
+reasoning explains the whole render architecture.
 
 Every frame is currently rendered **from scratch** as a pure function of
 (time, audio). There is no memory. That is exactly why nothing trails, nothing
@@ -47,11 +48,30 @@ That last point matters: the accumulator should hold a smooth continuous
 field, and the braille grid should be a *view* of it. Quantising before
 accumulating would stair-step the trails.
 
-Two `ShaderEffectSource`s ping-ponged is the standard approach. Watch out:
-`hideSource: true` stops a `Canvas` painting (see below), and `live` /
-`recursive` semantics need checking — Quickshell may need `recursive: true`.
+**How it is actually built.** A single `ShaderEffectSource` with
+`recursive: true` — Qt double-buffers internally, so no manual ping-pong is
+needed. `shaders/field.frag` renders the scene *and* samples the accumulator
+through the warp; `shaders/display.frag` does the braille quantisation as a
+view over it. The field pass is sized to exactly one texel per braille dot
+(`cols*2 x rows*4`), so the display pass is a 1:1 lookup.
 
-### After feedback, in order
+Tuning notes, all learned the hard way:
+
+- **Decay is the trail length and it saturates fast.** 0.90 filled the frame
+  with grey mush within seconds. ~0.80-0.82 holds structure without filling.
+- **The additive term must be well under 1** (0.45). It is applied every frame
+  on top of a decayed copy of itself; small numbers compound.
+- **Zoom compounds too.** 0.978/frame is already strong outward flow — a few
+  percent per frame is a lot after 60 frames.
+- **Mask the edges** (`smoothstep` on distance to border) or the border smears
+  inward forever.
+- **Re-apply contrast in the display pass.** The accumulator saturates toward
+  1, so without `smoothstep(0.17, 0.72, level)` every dot lights and the
+  uniform-grey-haze problem returns.
+- **Gate feedback by `dissolve`.** The cover reveal must stay crisp; trails
+  belong to the abstract phase. Feedback ramps in as the cover devolves.
+
+### Next, in order
 
 1. **Autonomous agents.** A few hundred particles with their own velocities and
    lifetimes, advected by a slowly-evolving flow field, leaving trails in the
@@ -71,6 +91,19 @@ Two `ShaderEffectSource`s ping-ponged is the standard approach. Watch out:
    so the cell texture needs a second channel.
 
 ---
+
+## Motion review — `bin/motion-capture`
+
+    ./bin/motion-capture [frames] [region]        env: SETTLE=<sec>
+
+Every motion complaint this project has had was invisible in a still. This
+bursts ~18fps of `grim` grabs from a small crop (grim is far faster on a
+crop), montages them into a filmstrip, and prints the frame-to-frame
+difference series. Flat line = steady motion; spikes = lurching. Use
+`SETTLE=22` or more to capture past the cover reveal into the scenes.
+
+**Build this before changing any visual.** Tuning motion from stills is what
+made several earlier rounds go in circles.
 
 ## Testing methodology — use this, it is the only thing that worked
 
