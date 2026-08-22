@@ -63,7 +63,7 @@ void main() {
             vec4 s = texture(fieldTex, dotPos / cols);
             // The accumulator saturates toward 1; without a curve here every
             // dot lights and the frame is a uniform haze again.
-            float lvl = smoothstep(0.17, 0.72, s.a);
+            float lvl = smoothstep(0.24, 0.80, s.a);
             vec3 col = s.rgb / max(lvl, 0.002);      // undo premultiply
 
             vec2 dotId = vec2(cell.x * 2.0 + float(dx), cell.y * 4.0 + float(dy));

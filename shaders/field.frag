@@ -30,6 +30,7 @@ layout(std140, binding = 0) uniform buf {
 layout(binding = 1) uniform sampler2D artTex;
 layout(binding = 2) uniform sampler2D artTexB;
 layout(binding = 3) uniform sampler2D prevTex;   // previous accumulator
+layout(binding = 4) uniform sampler2D waveTex;   // time-domain waveform, 128x1
 
 // Wall time (anim.x) drifts at a constant rate no matter what is playing.
 // mtime() advances with energy instead, so motion tracks the track. pulse()
@@ -581,6 +582,29 @@ vec2 warpSample(vec2 uv) {
 // harmony moves another. Everything answering one aggregate signal is what
 // made earlier builds read as a single thump.
 
+// The oscilloscope trace. This is the most literally-synced element there is
+// -- it IS the signal, not a statistic derived from it, which is why MilkDrop
+// leans on it so hard. Drawn as a radial trace so it sits with the radial
+// scenes; the feedback warp then smears it into ribbons over following frames.
+vec4 waveLayer(vec2 uv) {
+    vec2 p = (uv - 0.5) * vec2(view.x, 1.0);
+    float r = length(p);
+    float a = atan(p.y, p.x) / 6.2831853 + 0.5;
+    float amp = texture(waveTex, vec2(a, 0.5)).r * 2.0 - 1.0;
+
+    // Radius breathes slowly so the ring is not pinned to one size.
+    float base = 0.20 + 0.05 * sin(mtime() * 0.061) + slowEnergy() * 0.05;
+    float target = base + amp * (0.055 + slowEnergy() * 0.05);
+
+    float line = smoothstep(0.011, 0.0, abs(r - target));
+    // A second, quieter trace at a different phase gives it depth.
+    float amp2 = texture(waveTex, vec2(fract(a + 0.5), 0.5)).r * 2.0 - 1.0;
+    line += 0.45 * smoothstep(0.008, 0.0, abs(r - (base * 1.6 + amp2 * 0.045)));
+
+    vec3 c = mix(albumColor(uv, anim.x), vec3(1.0), 0.35);
+    return vec4(c, clamp(line, 0.0, 1.0));
+}
+
 // Percussive: expanding rings released by drum hits (HPSS percussive stream).
 vec4 burstLayer(vec2 uv) {
     float mt = mtime();
@@ -633,7 +657,7 @@ void main() {
     // Feedback ramps in with the dissolve. The cover reveal should be a
     // clean, crisp image; trails belong to the abstract phase it devolves
     // into. This also stops the accumulator smearing the artwork.
-    float decay = (0.80 + 0.055 * slowEnergy()) * smoothstep(0.0, 0.30, anim.z);
+    float decay = (0.755 + 0.05 * slowEnergy()) * smoothstep(0.0, 0.30, anim.z);
     prev *= decay;
     // Edges must not feed back or the border smears inward forever.
     float edge = smoothstep(0.0, 0.06, min(min(pv.x, 1.0 - pv.x), min(pv.y, 1.0 - pv.y)));
@@ -642,8 +666,12 @@ void main() {
     // Composite the layers, each carrying its own musical stream.
     vec4 bu = burstLayer(vTex);
     vec4 fi = filigreeLayer(vTex);
-    vec4 add = vec4(f.rgb * f.a, f.a) * 0.42
-             + vec4(bu.rgb * bu.a, bu.a) * 0.55
-             + vec4(fi.rgb * fi.a, fi.a) * 0.38;
+    vec4 wv = waveLayer(vTex);
+    // Layer weights. Everything here is applied EVERY frame on top of a
+    // decayed copy of itself, so these compound hard -- small numbers.
+    vec4 add = vec4(f.rgb * f.a, f.a) * 0.34
+             + vec4(bu.rgb * bu.a, bu.a) * 0.42
+             + vec4(fi.rgb * fi.a, fi.a) * 0.24
+             + vec4(wv.rgb * wv.a, wv.a) * 0.52;
     fragColor = clamp(prev + add, 0.0, 1.0);
 }

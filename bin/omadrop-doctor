@@ -9,4 +9,11 @@ python3 -c "import numpy; print('numpy       ' + numpy.__version__)" 2>/dev/null
 echo
 echo "default sink: $(pactl get-default-sink 2>/dev/null)"
 echo "playing now : $(pactl list short sink-inputs 2>/dev/null | wc -l) stream(s)"
-echo "shaders     : $( [ -f "$(dirname "$0")/../shaders/braille.frag.qsb" ] && echo baked || echo 'NOT BAKED - run ./build.sh')"
+echo "shaders     : $( [ -f "$(dirname "$0")/../shaders/display.frag.qsb" ] && echo baked || echo 'NOT BAKED - run ./build.sh')"
+font=$(fc-match -f "%{family[0]}" "${OMADROP_FONT:-monospace}" 2>/dev/null)
+echo "mono font   : $font"
+if fc-match -f "%{family[0]}" "${OMADROP_FONT:-monospace}:charset=2800" 2>/dev/null | grep -qi "$font"; then
+  echo "braille     : present in $font"
+else
+  echo "braille     : MISSING from $font — install a Nerd Font or set OMADROP_FONT"
+fi

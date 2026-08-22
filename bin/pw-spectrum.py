@@ -23,6 +23,7 @@ WINDOW = 2048      # samples the FFT sees; overlaps so low bins stay resolved
 RANGE = 1000       # matches cava's ascii_max_range
 FMIN, FMAX = 30.0, 16000.0
 GATE = 2e-4        # below this peak amplitude, treat the stream as silence
+WAVE_N = 128       # waveform points sent per frame
 
 
 def default_sink():
@@ -121,6 +122,18 @@ def main():
             prev_norm = norm.copy()
             beat.push(flux)
             beat.advance()
+
+            # Time-domain waveform. MilkDrop draws the oscilloscope trace and
+            # it is a large part of why it reads as synced -- it IS the audio,
+            # not a derived statistic. Downsampled to WAVE_N points, encoded
+            # 0..1000 with 500 as zero crossing.
+            seg = buf[-WAVE_N * 8:]
+            wav = seg.reshape(WAVE_N, -1).mean(axis=1)
+            wpk = max(float(np.abs(wav).max()), 1e-4)
+            wav = np.clip(wav / (wpk * 1.15), -1.0, 1.0)
+            sys.stdout.write(
+                "^" + ";".join(str(int(v * 499 + 500)) for v in wav) + "\n"
+            )
 
             sys.stdout.write(
                 "~%.2f;%.4f;%.3f;%.4f;%.4f;%.4f;%.4f\n"

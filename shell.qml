@@ -14,8 +14,17 @@ import Quickshell.Services.Mpris
 ShellRoot {
   id: root
 
-  property string fontFamily: "JetBrainsMono Nerd Font"
-  readonly property string appDir: Quickshell.env("HOME") + "/Projects/omadrop"
+  // Follow the system monospace (fontconfig) so Omadrop matches whatever font
+  // the user's theme sets. OMADROP_FONT overrides. The face must carry braille
+  // (U+2800-28FF); the doctor checks that.
+  property string fontFamily: Quickshell.env("OMADROP_FONT") || "monospace"
+  // Derived from this file's own location so the app is relocatable --
+  // /usr/share, ~/.local/share, a git checkout, all work unchanged.
+  readonly property string appDir: {
+    var u = Qt.resolvedUrl(".").toString()
+    if (u.indexOf("file://") === 0) u = u.substring(7)
+    return u.replace(/\/$/, "")
+  }
 
   // ------------------------------------------------------- cover art
   // Whichever player is actually playing wins; otherwise fall back to any
@@ -126,10 +135,20 @@ ShellRoot {
   Process {
     id: source
     running: true
-    command: [Quickshell.env("HOME") + "/Projects/omadrop/bin/omadrop-source", "128", "60"]
+    command: [root.appDir + "/bin/omadrop-source", "128", "60"]
     stdout: SplitParser {
       splitMarker: "\n"
       onRead: function(line) {
+        // Time-domain waveform.
+        if (line.charAt(0) === "^") {
+          var w = line.substring(1).split(";")
+          if (w.length < 32) return
+          var out = new Array(w.length)
+          for (var wi = 0; wi < w.length; wi++)
+            out[wi] = Math.max(0, Math.min(1, (parseInt(w[wi], 10) || 500) / 1000))
+          root.wave = out
+          return
+        }
         // Feature lines from the analysis engine.
         if (line.charAt(0) === "~") {
           var f = line.substring(1).split(";")
@@ -292,6 +311,13 @@ ShellRoot {
   property real midS: 0
   property real trebleS: 0
   property var spec: null
+  property var wave: null
+  // Pre-built styles: Qt.rgba() per sample would dominate the paint loop.
+  readonly property var waveStyles: {
+    var a = []
+    for (var i = 0; i < 256; i++) a.push(Qt.rgba(i / 255, 0, 0, 1))
+    return a
+  }
 
   // ------------------------------------------------ musical features
   property real bpm: 0
@@ -430,6 +456,39 @@ ShellRoot {
       readonly property vector4d uPal2: Qt.vector4d(root.palColor(2).r, root.palColor(2).g, root.palColor(2).b, 1)
       readonly property vector4d uPal3: Qt.vector4d(root.palColor(3).r, root.palColor(3).g, root.palColor(3).b, 1)
 
+      // Waveform texture. fillRect only -- putImageData silently does nothing
+      // in this Qt build (see NOTES.md).
+      Canvas {
+        id: waveCanvas
+        width: 128; height: 1
+        renderTarget: Canvas.Image
+        renderStrategy: Canvas.Immediate
+        // The parser lives at root scope and there is one canvas per screen,
+        // so the repaint is driven from here rather than called directly.
+        Connections {
+          target: root
+          function onWaveChanged() { waveCanvas.requestPaint() }
+        }
+        onPaint: {
+          var w = root.wave
+          if (!w) return
+          var ctx = getContext("2d")
+          var n = Math.min(w.length, 128)
+          for (var i = 0; i < n; i++) {
+            ctx.fillStyle = root.waveStyles[Math.round(w[i] * 255)]
+            ctx.fillRect(i, 0, 1, 1)
+          }
+        }
+      }
+      ShaderEffectSource {
+        id: waveTexture
+        sourceItem: waveCanvas
+        live: true
+        smooth: true
+        hideSource: false
+        textureSize: Qt.size(128, 1)
+      }
+
       // ------------------------------------------------- feedback chain
       // The field pass renders into an accumulator that samples ITSELF each
       // frame through a slow warp and decays. That single mechanism is what
@@ -445,6 +504,7 @@ ShellRoot {
         property variant artTex: artImageA
         property variant artTexB: artImageB
         property variant prevTex: accum
+        property variant waveTex: waveTexture
         property vector4d grid: win.uGrid
         property vector4d audio: win.uAudio
         property vector4d anim: win.uAnim

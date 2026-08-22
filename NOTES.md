@@ -93,13 +93,36 @@ alongside the scene body. Everything answering one aggregate signal is what
 made earlier builds read as a single thump no matter how well onsets were
 detected.
 
+### Waveform — IMPLEMENTED
+
+`pw-spectrum.py` now emits a 128-point downsampled waveform per frame on a
+`^`-prefixed line (0..1000, 500 = zero crossing). QML writes it into a 128x1
+`Canvas` via `fillRect` (putImageData still does nothing) and `field.frag`
+draws it as a **radial** trace, which sits better with the radial scenes than
+a flat line and gets smeared into ribbons by the feedback warp.
+
+It is the most literally-synced element available -- it IS the signal, not a
+statistic derived from it. That is why MilkDrop leans on it.
+
+**Layer weights compound.** Every layer is added on top of a decayed copy of
+itself every frame, so the useful range is far smaller than it looks. Body
+0.34, bursts 0.42, filigree 0.24, wave 0.52, decay ~0.75. Doubling any of
+these fills the frame with haze within a couple of seconds.
+
+### Packaging (needed for Omarchy inclusion)
+
+Fixed already: the app is **relocatable** (install dir derived from
+`Qt.resolvedUrl(".")`, not a hardcoded `~/Projects` path) and follows the
+**system monospace** via fontconfig rather than pinning JetBrains Mono. The
+doctor checks the resolved face actually carries braille (U+2800-28FF).
+
+Still to do: PKGBUILD, ship pre-baked `.qsb` (so `qt6-shadertools` is
+build-time only), decide whether `python-numpy` is an acceptable runtime dep
+or the analysis engine gets rewritten, menu/keybinding integration.
+
 ### Next, in order
 
-1. **Waveform rendering.** MilkDrop draws the actual oscilloscope trace and it
-   is a huge part of the identity. We currently keep NO time-domain data --
-   the pipeline discards raw samples after the FFT. Needs a downsampled
-   waveform on the wire and a curve drawn into the field.
-2. **Song-structure awareness.** Beat tracking gives position in the bar, not
+1. **Song-structure awareness.** Beat tracking gives position in the bar, not
    position in the song; verse and chorus look identical. Novelty groundwork
    exists in `analysis.py`.
 3. **Preset system.** MilkDrop's depth is its preset library, not its renderer.
