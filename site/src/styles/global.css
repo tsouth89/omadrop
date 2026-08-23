@@ -167,6 +167,6 @@ kbd { padding: 8px 10px; border: 1px solid var(--line); color: var(--paper); fon
   .hero__film { display: none; }
   .hero { background: #000 url('/media/hero-poster.avif') center / cover no-repeat; }
   .proof__stage video { display: none; }
-  .proof__stage { background: #000 url('/media/queen-poster.avif') center / contain no-repeat; }
+  .proof__stage { background: #000 url('/media/variety-poster.avif') center / contain no-repeat; }
   .button { transition: none; }
 }

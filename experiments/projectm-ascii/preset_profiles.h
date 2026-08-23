@@ -22,15 +22,17 @@ struct PresetProfile {
     float reactionGain;
 };
 
-inline constexpr std::array<PresetProfile, 5> presetProfiles{{
+inline constexpr std::array<PresetProfile, 6> presetProfiles{{
     {"Contortion (Escher's Tunnel Mix)", PresetTopology::Tunnel,
      PresetDirection::Inward, PresetEnergy::Driving, 10000, 14000, 0.46f, 1.00f},
-    {"Bitterfeld (Crystal Border Mix)", PresetTopology::Crystal,
-     PresetDirection::Orbit, PresetEnergy::Driving, 9000, 13000, 0.55f, 1.15f},
+    {"wire dance", PresetTopology::Multipole,
+     PresetDirection::Orbit, PresetEnergy::Driving, 10000, 14000, 0.50f, 1.12f},
     {"Halls Of Centrifuge", PresetTopology::Radial,
      PresetDirection::Orbit, PresetEnergy::Driving, 9000, 12000, 0.48f, 1.18f},
-    {"Songflower (Hybrid Plant)", PresetTopology::Organic,
-     PresetDirection::Oscillate, PresetEnergy::Medium, 12000, 16000, 0.52f, 0.86f},
+    {"night cathedral", PresetTopology::Interference,
+     PresetDirection::Inward, PresetEnergy::Medium, 11000, 15000, 0.50f, 1.08f},
+    {"Bitterfeld (Crystal Border Mix)", PresetTopology::Crystal,
+     PresetDirection::Orbit, PresetEnergy::Driving, 9000, 13000, 0.55f, 1.15f},
     {"Morat's Final Voyage", PresetTopology::Interference,
      PresetDirection::Oscillate, PresetEnergy::Medium, 10000, 14000, 0.58f, 1.04f},
 }};

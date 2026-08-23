@@ -26,12 +26,5 @@ inline void applyOmadropAdapter(const std::string& filename, std::string& preset
                 preset.replace(at, original.size(), adapted);
             }
         }
-    } else if (filename.find("Songflower (Hybrid Plant)") != std::string::npos) {
-        const std::string anchor = "per_pixel_23=";
-        if (const auto at = preset.find(anchor); at != std::string::npos) {
-            const auto end = preset.find('\n', at);
-            preset.insert(end == std::string::npos ? preset.size() : end + 1,
-                "per_pixel_24=zoom = zoom + 0.022*max(0,bass-bass_att)*(1-rad);\n");
-        }
     }
 }

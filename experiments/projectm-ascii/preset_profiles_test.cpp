@@ -6,11 +6,12 @@
 #include <string>
 
 int main() {
-    const std::array<std::string, 5> curated{
+    const std::array<std::string, 6> curated{
         "Aderrasi - Contortion (Escher's Tunnel Mix).milk",
-        "Aderrasi - Bitterfeld (Crystal Border Mix).milk",
+        "Martin - wire dance.milk",
         "Aderrasi - Halls Of Centrifuge.milk",
-        "Aderrasi - Songflower (Hybrid Plant).milk",
+        "martin - night cathedral.milk",
+        "Aderrasi - Bitterfeld (Crystal Border Mix).milk",
         "Unchained - Morat's Final Voyage.milk",
     };
 
