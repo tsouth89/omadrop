@@ -10,4 +10,4 @@ exec "$here/projectm-ascii-live" \
   "$base/Aderrasi - Halls Of Centrifuge.milk" \
   "$tryptonaut/martin - night cathedral.milk" \
   "$base/Aderrasi - Bitterfeld (Crystal Border Mix).milk" \
-  "$base/Unchained - Morat's Final Voyage.milk"
+  "$base/Aderrasi + Geiss - Airhandler (Kali Mix) - Painterly Kaleidoscope 2.milk"

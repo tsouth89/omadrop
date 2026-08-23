@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
@@ -26,6 +27,7 @@
 #include <vector>
 
 #include "audio_features.h"
+#include "audio_queue.h"
 #include "preset_adapters.h"
 #include "preset_profiles.h"
 
@@ -70,39 +72,68 @@ uniform float midImpact;
 uniform float trebleImpact;
 uniform int asciiEnabled;
 uniform int transitionMode;
-uniform int reactionMode;
-uniform float reactionGain;
+uniform int sourceReactionMode;
+uniform int nextReactionMode;
+uniform vec3 sourceReactionGain;
+uniform vec3 nextReactionGain;
+uniform float asciiExposure;
 
 float luminance(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
+vec2 reactedUv(vec2 sampleUv, int mode, vec3 gain) {
+    vec2 p = sampleUv - 0.5;
+    float radius = max(0.001, length(p));
+    float angle = atan(p.y, p.x);
+    float kick = bassImpact * gain.x;
+    float snare = midImpact * gain.y;
+    float hat = trebleImpact * gain.z;
+    vec2 movement = vec2(0.0);
+    if (mode == 0) {
+        // Contortion: kick opens tunnel depth, snare turns its existing walls.
+        movement = p * (0.026 * kick)
+                 + vec2(-p.y, p.x) * (0.009 * snare);
+        movement += p / radius * sin(angle * 10.0 + radius * 42.0) * (0.0018 * hat);
+    } else if (mode == 1) {
+        // Wire Dance: separate its connected lobes instead of shaking the camera.
+        movement = vec2(sign(p.x), sign(p.y)) * (0.018 * kick)
+                 * smoothstep(0.05, 0.44, radius);
+        movement += vec2(-p.y, p.x) * (0.010 * snare);
+        movement += vec2(sin(sampleUv.y * 41.0), cos(sampleUv.x * 37.0))
+                  * (0.0022 * hat);
+    } else if (mode == 2) {
+        // Halls of Centrifuge: a kick travels down the vanishing point.
+        movement = p * (0.027 * kick * (1.0 - 0.35 * smoothstep(0.18, 0.70, radius)));
+        movement += vec2(-p.y, p.x) * (0.012 * snare * (0.35 + radius));
+        movement += p / radius * sin(radius * 46.0) * (0.0020 * hat);
+    } else if (mode == 3) {
+        // Night Cathedral: compress the corridor and flex its opposing planes.
+        movement = p * vec2(0.014, 0.025) * kick;
+        movement.x += sin(sampleUv.y * 10.0) * (0.013 * snare);
+        movement.y += sin(sampleUv.x * 33.0) * (0.0018 * hat);
+    } else if (mode == 4) {
+        // Bitterfeld: fracture the crystal field along its existing facets.
+        movement.x = sin(sampleUv.y * 9.0 + angle * 2.0) * (0.021 * kick);
+        movement.y = sin(sampleUv.x * 8.0 - angle * 2.0) * (0.010 * snare);
+        movement += vec2(cos(angle * 12.0), sin(angle * 12.0)) * (0.0022 * hat);
+    } else {
+        // Airhandler: bend its connected tendrils without breaking their silhouette.
+        movement = vec2(sin(sampleUv.y * 8.0 + sampleUv.x * 2.0),
+                        sin(sampleUv.x * 7.0 - sampleUv.y * 1.5)) * (0.014 * kick);
+        movement += vec2(-p.y, p.x) * (0.010 * snare);
+        movement += vec2(cos(sampleUv.y * 39.0), sin(sampleUv.x * 43.0))
+                  * (0.0020 * hat);
+    }
+    return clamp(sampleUv + movement, vec2(0.002), vec2(0.998));
+}
+
 vec3 sceneSample(vec2 sampleUv) {
     vec2 coverSampleUv = sampleUv;
-    vec2 p = sampleUv - 0.5;
-    vec2 movement = vec2(0.0);
-    if (reactionMode == 0) {
-        // Radial presets breathe through their existing vanishing point.
-        movement = p * (0.020 * bassImpact * reactionGain)
-                 + vec2(-p.y, p.x) * (0.006 * midImpact * reactionGain);
-    } else if (reactionMode == 1) {
-        // Structured fields flex in broad opposing planes.
-        movement.x = sin(sampleUv.y * 9.0) * (0.016 * bassImpact * reactionGain);
-        movement.y = sin(sampleUv.x * 7.0) * (0.006 * midImpact * reactionGain);
-    } else if (reactionMode == 2) {
-        // Organic subjects bend as connected ribbons, preserving their silhouette.
-        movement.x = sin(sampleUv.y * 8.0 + sampleUv.x * 2.0)
-                   * (0.018 * bassImpact + 0.005 * midImpact) * reactionGain;
-        movement.y = sin(sampleUv.x * 6.0) * (0.005 * midImpact * reactionGain);
-    } else {
-        // Multipole scenes pull their existing lobes apart on a kick.
-        movement = vec2(sign(p.x), sign(p.y)) * (0.010 * bassImpact * reactionGain)
-                 * smoothstep(0.06, 0.42, length(p));
-        movement += vec2(-p.y, p.x) * (0.005 * midImpact * reactionGain);
-    }
-    sampleUv = clamp(sampleUv + movement, vec2(0.002), vec2(0.998));
     float easedPresetMix = presetMix * presetMix * (3.0 - 2.0 * presetMix);
     float bridge = sin(3.14159265 * easedPresetMix);
     vec2 outgoingUv = (sampleUv - 0.5) * (1.0 - 0.025 * bridge) + 0.5;
     vec2 incomingUv = (sampleUv - 0.5) * (1.025 - 0.025 * easedPresetMix) + 0.5;
+    outgoingUv = reactedUv(outgoingUv, sourceReactionMode, sourceReactionGain);
+    incomingUv = reactedUv(incomingUv, nextReactionMode, nextReactionGain);
     vec3 outgoing = texture(sourceFrame, outgoingUv).rgb;
     vec3 incoming = texture(nextFrame, incomingUv).rgb;
 
@@ -135,7 +166,7 @@ vec3 sceneSample(vec2 sampleUv) {
                     + albumColor * visualLight * 0.16;
     visual = mix(visual, albumGrade, paletteInfluence);
     if (coverMix <= 0.0) return visual;
-    p = coverSampleUv - 0.5;
+    vec2 p = coverSampleUv - 0.5;
     float screenAspect = resolution.x / resolution.y;
     if (screenAspect > coverAspect) p.x *= screenAspect / coverAspect;
     else p.y *= coverAspect / screenAspect;
@@ -224,7 +255,8 @@ void main() {
     }
 
     const float threshold[8] = float[8](0.08, 0.58, 0.33, 0.83, 0.70, 0.20, 0.95, 0.45);
-    float level = min(1.0, sqrt(max(best, 0.0)) * 1.25);
+    float materialExposure = mix(asciiExposure, 1.0, coverMix);
+    float level = min(1.0, sqrt(max(best, 0.0)) * 1.25 * sqrt(materialExposure));
     level = floor(level * 5.0 + 0.5) / 5.0;
     // Bass briefly reveals more of the preset's own dim structure. This makes
     // the active subject feel heavier without adding a ring or moving the
@@ -243,7 +275,7 @@ void main() {
     // and chroma, but must never globally flash the frame toward white.
     color = vec4(energized * glyphMask
                  * (0.80 + level * 0.32 + 0.035 * bassLevel
-                    + 0.025 * trebleLevel), 1.0);
+                    + 0.025 * trebleLevel) * materialExposure, 1.0);
 }
 )GLSL";
 
@@ -284,10 +316,10 @@ bool loadPresetAtVisualTempo(projectm_handle projectm, const std::string& filena
     // projectM intentionally has no global time-scale control. Transforming
     // the preset program slows time-based EEL and shader motion while its
     // bass/mid/treble inputs continue to receive live audio at full speed.
+    applyOmadropAdapter(filename, preset);
     const std::string scale = std::to_string(visualTempo);
     preset = std::regex_replace(preset, std::regex(R"(\btime\b)"), "(time*" + scale + ")");
     preset = std::regex_replace(preset, std::regex(R"(\bframe\b)"), "(frame*" + scale + ")");
-    applyOmadropAdapter(filename, preset);
     float sensitivity = 1.30f;
     if (filename.find("Halls Of Centrifuge") != std::string::npos) sensitivity = 1.36f;
     else if (filename.find("Songflower") != std::string::npos) sensitivity = 1.34f;
@@ -343,18 +375,35 @@ std::array<float, 3> loadPaletteColor(const std::string& filename) {
     return best;
 }
 
-std::filesystem::path syncSettingsPath() {
+std::filesystem::path configDirectory() {
     if (const char* configHome = std::getenv("XDG_CONFIG_HOME")) {
-        return std::filesystem::path(configHome) / "omadrop" / "sync-ms";
+        return std::filesystem::path(configHome) / "omadrop";
     }
     if (const char* home = std::getenv("HOME")) {
-        return std::filesystem::path(home) / ".config" / "omadrop" / "sync-ms";
+        return std::filesystem::path(home) / ".config" / "omadrop";
     }
     return {};
 }
 
-void saveSyncDelay(unsigned int milliseconds) {
-    const auto path = syncSettingsPath();
+std::filesystem::path syncSettingsPath(const std::string& sink) {
+    std::string filename;
+    for (const unsigned char character : sink) {
+        filename += std::isalnum(character) || character == '-' || character == '_'
+            || character == '.' ? static_cast<char>(character) : '_';
+    }
+    if (filename.empty()) filename = "default";
+    if (filename.size() > 180) filename.resize(180);
+    const auto directory = configDirectory();
+    return directory.empty() ? directory : directory / "sync-by-sink" / (filename + ".ms");
+}
+
+std::filesystem::path legacySyncSettingsPath() {
+    const auto directory = configDirectory();
+    return directory.empty() ? directory : directory / "sync-ms";
+}
+
+void saveSyncDelay(unsigned int milliseconds, const std::string& sink) {
+    const auto path = syncSettingsPath(sink);
     if (path.empty()) return;
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
@@ -487,8 +536,7 @@ int main(int argc, char** argv) {
     uint64_t presetTransitionStartedAt = 0;
     uint64_t presetTransitionDuration = 6500;
     int transitionMode = 3;
-    int reactionMode = reactionModeForTopology(profileForPreset(presets[presetIndex]).topology);
-    float reactionGain = profileForPreset(presets[presetIndex]).reactionGain;
+    std::size_t transitionOutgoingPresetIndex = presetIndex;
     if (!loadPresetAtVisualTempo(engines[activeEngine], presets[presetIndex], false)) return 1;
     std::cerr << "preset: " << presets[presetIndex] << "\n";
     uint64_t transitionWindowAt = SDL_GetTicks64() + 9000;
@@ -499,10 +547,18 @@ int main(int argc, char** argv) {
     if (const char* configuredDelay = std::getenv("OMADROP_SYNC_MS")) {
         syncDelayMs = static_cast<unsigned int>(std::clamp(std::atoi(configuredDelay), 0, 500));
     } else {
-        std::ifstream savedDelay(syncSettingsPath());
+        const auto sinkSettings = syncSettingsPath(sink);
+        std::ifstream savedDelay(sinkSettings);
+        bool migrateLegacyDelay = false;
+        if (!savedDelay && !std::filesystem::exists(sinkSettings.parent_path())) {
+            savedDelay.clear();
+            savedDelay.open(legacySyncSettingsPath());
+            migrateLegacyDelay = static_cast<bool>(savedDelay);
+        }
         int milliseconds = 0;
         if (savedDelay >> milliseconds) {
             syncDelayMs = static_cast<unsigned int>(std::clamp(milliseconds, 0, 500));
+            if (migrateLegacyDelay) saveSyncDelay(syncDelayMs, sink);
         }
     }
     std::deque<float> delayedPcm;
@@ -543,9 +599,10 @@ int main(int argc, char** argv) {
     double visualMidPhase = 0.0;
     double visualTreblePhase = 0.0;
     double fallbackPhase = 0.0;
-    const bool syntheticFallback = std::getenv("OMADROP_SYNTHETIC_AUDIO") != nullptr;
+    const bool syntheticAudio = std::getenv("OMADROP_SYNTHETIC_AUDIO") != nullptr;
     bool lastFallback = false;
     bool reportedAudioMode = false;
+    uint64_t discardedAudioFrames = 0;
     uint64_t lastNonSilentAudioAt = SDL_GetTicks64();
     uint64_t previousFrameAt = SDL_GetTicks64();
     AudioFeatureBus featureBus;
@@ -555,6 +612,9 @@ int main(int argc, char** argv) {
     float trebleImpact = 0.0f;
     float musicalEnergy = 1.0f;
     const bool debugAudio = std::getenv("OMADROP_DEBUG_AUDIO") != nullptr;
+    const float reactionScale = std::getenv("OMADROP_REACTION_SCALE")
+        ? std::clamp(std::strtof(std::getenv("OMADROP_REACTION_SCALE"), nullptr), 0.0f, 3.0f)
+        : 1.0f;
     uint64_t lastClockLogAt = 0;
     float coverAspect = 1.0f;
     std::array<float, 3> albumColor{0.72f, 0.82f, 1.0f};
@@ -594,9 +654,13 @@ int main(int argc, char** argv) {
     bool running = true;
     bool asciiEnabled = true;
     bool windowShown = false;
-    bool artLookupComplete = false;
+    const bool disableArt = std::getenv("OMADROP_DISABLE_ART") != nullptr;
+    bool artLookupComplete = disableArt;
     const uint64_t automaticQuitAt = std::getenv("OMADROP_AUTO_QUIT_MS")
         ? SDL_GetTicks64() + static_cast<uint64_t>(std::max(0, std::atoi(std::getenv("OMADROP_AUTO_QUIT_MS"))))
+        : 0;
+    uint64_t automaticNextAt = std::getenv("OMADROP_AUTO_NEXT_MS")
+        ? SDL_GetTicks64() + static_cast<uint64_t>(std::max(0, std::atoi(std::getenv("OMADROP_AUTO_NEXT_MS"))))
         : 0;
     using FrameClock = std::chrono::steady_clock;
     constexpr auto frameInterval = std::chrono::nanoseconds(1000000000 / 60);
@@ -621,18 +685,22 @@ int main(int argc, char** argv) {
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_LEFTBRACKET) {
                 syncDelayMs = syncDelayMs >= 10 ? syncDelayMs - 10 : 0;
-                saveSyncDelay(syncDelayMs);
+                saveSyncDelay(syncDelayMs, sink);
                 std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_RIGHTBRACKET) {
                 syncDelayMs = std::min(500u, syncDelayMs + 10);
-                saveSyncDelay(syncDelayMs);
+                saveSyncDelay(syncDelayMs, sink);
                 std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
             }
         }
         const uint64_t now = SDL_GetTicks64();
         if (automaticQuitAt > 0 && now >= automaticQuitAt) running = false;
-        if (now >= nextArtPollAt && artHelperPid < 0) startArtPoll();
+        if (automaticNextAt > 0 && now >= automaticNextAt) {
+            skipPreset = true;
+            automaticNextAt = 0;
+        }
+        if (!disableArt && now >= nextArtPollAt && artHelperPid < 0) startArtPoll();
         if (artHelperPid > 0) {
             std::array<char, 1024> artBuffer{};
             ssize_t artBytes = 0;
@@ -663,9 +731,6 @@ int main(int argc, char** argv) {
                 recentPresets.push_back(presetIndex);
                 presetTransitionActive = false;
                 loadPresetAtVisualTempo(engines[activeEngine], presets[presetIndex], false);
-                const PresetProfile& openingProfile = profileForPreset(presets[presetIndex]);
-                reactionMode = reactionModeForTopology(openingProfile.topology);
-                reactionGain = openingProfile.reactionGain;
                 // Let the first preset breathe after the ten-second cover
                 // sequence, then enter the same shorter scene cadence.
                 transitionWindowAt = now + 19000;
@@ -674,66 +739,86 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        const ssize_t bytes = read(audioFd, pcm.data(), pcm.size() * sizeof(float));
-        unsigned int capturedFrames = bytes > 0
-            ? static_cast<unsigned int>(bytes / (sizeof(float) * 2)) : 0;
+        unsigned int capturedFrames = 0;
         float peak = 0.0f;
-        for (unsigned int i = 0; i < capturedFrames * 2; ++i) peak = std::max(peak, std::abs(pcm[i]));
+        ssize_t bytes = 0;
+        while ((bytes = read(audioFd, pcm.data(), pcm.size() * sizeof(float))) > 0) {
+            std::size_t sampleCount = static_cast<std::size_t>(bytes) / sizeof(float);
+            sampleCount -= sampleCount % 2;
+            capturedFrames += static_cast<unsigned int>(sampleCount / 2);
+            for (std::size_t i = 0; i < sampleCount; ++i) {
+                peak = std::max(peak, std::abs(pcm[i]));
+                if (!syntheticAudio) delayedPcm.push_back(pcm[i]);
+            }
+        }
         if (capturedFrames > 0 && peak >= 1e-5f) lastNonSilentAudioAt = now;
         // A nonblocking PipeWire fd normally has empty reads between packets.
         // Only call it silence after a sustained gap, or the analyzer receives
         // alternating real and synthetic audio and visibly loses the music.
-        const bool fallback = now - lastNonSilentAudioAt >= 250;
+        const bool fallback = syntheticAudio || now - lastNonSilentAudioAt >= 250;
         if (!reportedAudioMode || fallback != lastFallback) {
             std::cerr << "audio: "
-                      << (fallback ? (syntheticFallback ? "synthetic test" : "silence")
+                      << (fallback ? (syntheticAudio ? "synthetic test" : "silence")
                                    : "PipeWire") << "\n";
             lastFallback = fallback;
             reportedAudioMode = true;
         }
-        unsigned int stereoFrames = 0;
+        constexpr unsigned int analysisHopFrames = 44100 / 60;
+        constexpr std::size_t analysisHopSamples = analysisHopFrames * 2;
+        constexpr std::size_t maximumAnalysisHops = 8;
+        unsigned int audioHops = 0;
         if (fallback) {
-            stereoFrames = 735;
-            std::fill_n(pcm.begin(), stereoFrames * 2, 0.0f);
-            if (syntheticFallback) {
+            audioHops = 1;
+            std::fill_n(pcm.begin(), analysisHopSamples, 0.0f);
+            if (syntheticAudio) {
                 const double seconds = SDL_GetTicks64() / 1000.0;
-                const double beat = std::pow(std::max(0.0, std::sin(seconds * 6.283185307)), 12.0);
-                for (unsigned int i = 0; i < stereoFrames; ++i) {
+                constexpr double tau = 6.28318530717958647692;
+                const double kickPulse = std::pow(std::max(0.0, std::cos(seconds * tau * 2.0)), 18.0);
+                const double snarePulse = std::pow(std::max(0.0, std::cos((seconds - 0.25) * tau * 2.0)), 18.0);
+                const double hatPulse = std::pow(std::max(0.0, std::cos((seconds - 0.125) * tau * 4.0)), 24.0);
+                for (unsigned int i = 0; i < analysisHopFrames; ++i) {
                     const double t = fallbackPhase + i / 44100.0;
-                    pcm[i * 2] = static_cast<float>(0.38 * std::sin(t * 345.575) * (0.5 + beat)
-                                                   + 0.18 * std::sin(t * 1463.0));
-                    pcm[i * 2 + 1] = static_cast<float>(0.36 * std::sin(t * 383.274) * (0.5 + beat)
-                                                       + 0.20 * std::sin(t * 1954.0));
+                    const double kick = (0.08 + 0.62 * kickPulse) * std::sin(t * tau * 62.0);
+                    const double snare = 0.34 * snarePulse * std::sin(t * tau * 2100.0);
+                    const double hat = 0.17 * hatPulse * std::sin(t * tau * 7000.0);
+                    pcm[i * 2] = static_cast<float>(kick + snare + hat);
+                    pcm[i * 2 + 1] = static_cast<float>(kick * 0.96 + snare * 1.04 + hat * 0.92);
                 }
-                fallbackPhase += stereoFrames / 44100.0;
+                fallbackPhase += analysisHopFrames / 44100.0;
             }
             delayedPcm.clear();
         } else {
-            for (unsigned int i = 0; i < capturedFrames * 2; ++i) delayedPcm.push_back(pcm[i]);
             const std::size_t syncDelaySamples
                 = static_cast<std::size_t>(44100 * syncDelayMs / 1000) * 2;
-            const std::size_t readySamples = delayedPcm.size() > syncDelaySamples
-                ? delayedPcm.size() - syncDelaySamples : 0;
-            // Analyze one exact 60 Hz hop. PipeWire read sizes vary, and
-            // comparing RMS across differently sized packets makes onset
-            // timing depend on packet boundaries instead of the music.
-            constexpr std::size_t analysisHopFrames = 44100 / 60;
-            stereoFrames = readySamples / 2 >= analysisHopFrames
-                ? static_cast<unsigned int>(analysisHopFrames) : 0;
-            for (unsigned int i = 0; i < stereoFrames * 2; ++i) {
-                pcm[i] = delayedPcm.front();
-                delayedPcm.pop_front();
-            }
+            // Analyze every complete 60 Hz hop that arrived since the last
+            // video frame. Only discard audio after an exceptional stall, so
+            // normal PipeWire packet bursts do not starve the beat clock.
+            const auto prepared = prepareAudioHops(
+                delayedPcm, syncDelaySamples, analysisHopSamples, maximumAnalysisHops);
+            discardedAudioFrames += prepared.discardedSamples / 2;
+            audioHops = static_cast<unsigned int>(prepared.readableSamples / analysisHopSamples);
         }
-        if (stereoFrames > 0) {
-            audioFeatures = featureBus.processStereo(pcm.data(), stereoFrames);
+        for (unsigned int audioHop = 0; audioHop < audioHops; ++audioHop) {
+            if (!fallback) {
+                for (std::size_t i = 0; i < analysisHopSamples; ++i) {
+                    pcm[i] = delayedPcm.front();
+                    delayedPcm.pop_front();
+                }
+            }
+            audioFeatures = featureBus.processStereo(pcm.data(), analysisHopFrames);
             bassImpact = std::max(bassImpact, audioFeatures.kickImpact);
             midImpact = std::max(midImpact, audioFeatures.snareImpact);
             trebleImpact = std::max(trebleImpact, audioFeatures.hatImpact);
-            bassHitThisFrame = !fallback && audioFeatures.kick;
-            if (debugAudio && audioFeatures.kick) std::cerr << "kick hit\n";
-            if (debugAudio && audioFeatures.snare) std::cerr << "snare hit\n";
-            if (debugAudio && audioFeatures.hat) std::cerr << "hat hit\n";
+            bassHitThisFrame = bassHitThisFrame || (!fallback && audioFeatures.kick);
+            if (debugAudio && audioFeatures.kick) {
+                std::cerr << "kick hit " << audioFeatures.kickImpact << "\n";
+            }
+            if (debugAudio && audioFeatures.snare) {
+                std::cerr << "snare hit " << audioFeatures.snareImpact << "\n";
+            }
+            if (debugAudio && audioFeatures.hat) {
+                std::cerr << "hat hit " << audioFeatures.hatImpact << "\n";
+            }
             const float energySample = std::clamp(
                 0.34f * (audioFeatures.level[0] + audioFeatures.level[1])
                 + 0.20f * audioFeatures.level[3]
@@ -744,7 +829,8 @@ int main(int argc, char** argv) {
                           << " confidence=" << audioFeatures.beatConfidence
                           << " beat=" << audioFeatures.beatPhase
                           << " bar=" << audioFeatures.barPhase
-                          << " phrase=" << audioFeatures.phrasePhase << "\n";
+                          << " phrase=" << audioFeatures.phrasePhase
+                          << " dropped=" << discardedAudioFrames << "\n";
                 lastClockLogAt = now;
             }
 
@@ -756,7 +842,7 @@ int main(int argc, char** argv) {
                                              + 0.28f * midImpact
                                              + 0.14f * trebleImpact;
             constexpr double tau = 6.28318530717958647692;
-            for (unsigned int i = 0; i < stereoFrames; ++i) {
+            for (unsigned int i = 0; i < analysisHopFrames; ++i) {
                 // Short tone bursts put unmistakable energy into the same
                 // bands exposed to MilkDrop equations. They are control
                 // signals only, not audible output.
@@ -777,23 +863,23 @@ int main(int argc, char** argv) {
                 visualPcm[i * 2 + 1] = pcm[i * 2 + 1] * visualDrive + control;
             }
             float visualPeak = 0.0f;
-            for (unsigned int i = 0; i < stereoFrames * 2; ++i) {
+            for (std::size_t i = 0; i < analysisHopSamples; ++i) {
                 visualPeak = std::max(visualPeak, std::abs(visualPcm[i]));
             }
             const float visualScale = visualPeak > 0.95f ? 0.95f / visualPeak : 1.0f;
-            for (unsigned int i = 0; i < stereoFrames * 2; ++i) {
+            for (std::size_t i = 0; i < analysisHopSamples; ++i) {
                 visualPcm[i] *= visualScale;
             }
             // projectM stores at most 480 samples per update. Resample the
             // complete 735-sample video interval instead of letting it discard
             // the final third of every frame.
-            const unsigned int forwardedFrames = std::min(stereoFrames, projectmSampleLimit);
-            const float sourceSpan = static_cast<float>(stereoFrames - 1);
+            const unsigned int forwardedFrames = std::min(analysisHopFrames, projectmSampleLimit);
+            const float sourceSpan = static_cast<float>(analysisHopFrames - 1);
             const float targetSpan = static_cast<float>(std::max(1u, forwardedFrames - 1));
             for (unsigned int i = 0; i < forwardedFrames; ++i) {
                 const float sourcePosition = sourceSpan * i / targetSpan;
                 const unsigned int left = static_cast<unsigned int>(sourcePosition);
-                const unsigned int right = std::min(left + 1, stereoFrames - 1);
+                const unsigned int right = std::min(left + 1, analysisHopFrames - 1);
                 const float fraction = sourcePosition - left;
                 for (unsigned int channel = 0; channel < 2; ++channel) {
                     projectmPcm[i * 2 + channel]
@@ -818,25 +904,31 @@ int main(int argc, char** argv) {
         if (!presetTransitionActive && presets.size() > 1
             && (skipPreset || previousPreset || musicalTransition || deadlineTransition)) {
             const std::size_t outgoingPreset = presetIndex;
+            transitionOutgoingPresetIndex = outgoingPreset;
             const PresetEnergy targetEnergy = energyForTrack(musicalEnergy);
             presetIndex = previousPreset ? (presetIndex + presets.size() - 1) % presets.size()
                 : skipPreset ? (presetIndex + 1) % presets.size()
                 : chooseAutomaticPreset(targetEnergy);
             const PresetProfile& outgoing = profileForPreset(presets[outgoingPreset]);
             const PresetProfile& incoming = profileForPreset(presets[presetIndex]);
+            auto musicalDuration = [&](float bars, uint64_t fallbackMs) {
+                if (audioFeatures.beatConfidence < 0.35f) return fallbackMs;
+                const float milliseconds = bars * 4.0f * 60000.0f
+                                         / std::max(60.0f, audioFeatures.bpm);
+                return static_cast<uint64_t>(std::clamp(milliseconds, 2500.0f, 7000.0f));
+            };
             if (outgoing.topology == incoming.topology) {
-                presetTransitionDuration = 6000;
+                presetTransitionDuration = musicalDuration(1.0f, 4000);
                 transitionMode = 0;
             }
-            else if (outgoing.topology == PresetTopology::Organic
-                     || incoming.topology == PresetTopology::Organic) {
-                presetTransitionDuration = 7000;
-                transitionMode = 2;
-            } else if (topologyFamily(outgoing.topology) == topologyFamily(incoming.topology)) {
-                presetTransitionDuration = 6500;
+            else if (directionsCompatible(outgoing.direction, incoming.direction)) {
+                presetTransitionDuration = musicalDuration(1.5f, 5000);
                 transitionMode = 1;
+            } else if (topologyFamily(outgoing.topology) == topologyFamily(incoming.topology)) {
+                presetTransitionDuration = musicalDuration(1.5f, 5500);
+                transitionMode = 2;
             } else {
-                presetTransitionDuration = 7500;
+                presetTransitionDuration = musicalDuration(2.0f, 6000);
                 transitionMode = 3;
             }
             recentPresets.push_back(presetIndex);
@@ -864,8 +956,6 @@ int main(int argc, char** argv) {
             activeEngine = 1 - activeEngine;
             presetTransitionActive = false;
             const PresetProfile& profile = profileForPreset(presets[presetIndex]);
-            reactionMode = reactionModeForTopology(profile.topology);
-            reactionGain = profile.reactionGain;
             std::uniform_int_distribution<uint64_t> dwellTime(profile.dwellMinMs,
                                                                profile.dwellMaxMs);
             const uint64_t dwell = dwellTime(randomEngine);
@@ -952,8 +1042,24 @@ int main(int argc, char** argv) {
         glUniform1i(glGetUniformLocation(program, "nextFrame"), 2);
         glUniform1f(glGetUniformLocation(program, "presetMix"), presetBlend);
         glUniform1i(glGetUniformLocation(program, "transitionMode"), transitionMode);
-        glUniform1i(glGetUniformLocation(program, "reactionMode"), reactionMode);
-        glUniform1f(glGetUniformLocation(program, "reactionGain"), reactionGain);
+        const PresetProfile& sourceProfile = profileForPreset(presets[
+            presetTransitionActive ? transitionOutgoingPresetIndex : presetIndex]);
+        const PresetProfile& nextProfile = profileForPreset(presets[presetIndex]);
+        glUniform1i(glGetUniformLocation(program, "sourceReactionMode"),
+                    reactionMode(sourceProfile));
+        glUniform1i(glGetUniformLocation(program, "nextReactionMode"),
+                    reactionMode(nextProfile));
+        glUniform3f(glGetUniformLocation(program, "sourceReactionGain"),
+                    sourceProfile.kickGain * reactionScale,
+                    sourceProfile.snareGain * reactionScale,
+                    sourceProfile.hatGain * reactionScale);
+        glUniform3f(glGetUniformLocation(program, "nextReactionGain"),
+                    nextProfile.kickGain * reactionScale,
+                    nextProfile.snareGain * reactionScale,
+                    nextProfile.hatGain * reactionScale);
+        glUniform1f(glGetUniformLocation(program, "asciiExposure"),
+                    sourceProfile.asciiExposure * (1.0f - presetBlend)
+                    + nextProfile.asciiExposure * presetBlend);
         glUniform2f(glGetUniformLocation(program, "resolution"), static_cast<float>(outputW), static_cast<float>(outputH));
         glUniform1f(glGetUniformLocation(program, "coverAspect"), coverAspect);
         glUniform1f(glGetUniformLocation(program, "coverMix"), coverBlend);

@@ -23,6 +23,10 @@ preset='/usr/share/projectM/presets/presets_stock/Rovastar - Fractopia (Fantic D
 `projectm-ascii` remains the deterministic offline comparison tool.
 `projectm-ascii-live` is the live Omadrop renderer.
 
+Replay a raw 44.1 kHz stereo f32 sink capture through the production analyzer
+with `audio-feature-replay CAPTURE.raw`. It reports kick, snare, and hat rates,
+impact range, BPM, and clock confidence for repeatable real-song tuning.
+
 ## Live GPU proof
 
 `projectm-ascii-live` captures the default PipeWire sink, feeds PCM directly to
@@ -41,12 +45,13 @@ Run the first curated rotating set with:
 ```
 
 After each profile's minimum dwell, scenes wait for a confident bar boundary
-or bass onset and begin a 6 to 7.5 second dual-renderer morph. Both presets
-remain live through the transition, with a deadline for quiet passages. Press
-`n` to skip immediately and Escape to quit. `[` and `]` adjust audio/video
+or bass onset and begin a one to two bar dual-renderer morph. Each preset keeps
+its own musical reaction through the transition, with a deadline for quiet
+passages. Press `n` to skip immediately and Escape to quit. `[` and `]` adjust audio/video
 alignment by 10 ms while listening. `OMADROP_SYNC_MS` sets the initial delay;
 Bluetooth outputs default to 180 ms and wired outputs to 35 ms. Manual changes
-are saved in `$XDG_CONFIG_HOME/omadrop/sync-ms`.
+are saved per output in `$XDG_CONFIG_HOME/omadrop/sync-by-sink/`, so switching
+between Bluetooth and wired devices preserves separate calibration values.
 
 Press `p` to return to the previous preset while auditioning the curated set.
 Automatic changes randomly choose within the track's slowly measured calm or
@@ -57,8 +62,12 @@ Press `a` to switch between Omadrop ASCII and the original MilkDrop rendering.
 Press F11 to toggle fullscreen.
 
 Press Escape to exit. The process prints `audio: PipeWire` when nonzero sink
-samples arrive. During silence it uses a synthetic development signal and
-prints `audio: synthetic fallback`.
+samples arrive. `OMADROP_SYNTHETIC_AUDIO=1` forces a deterministic repeating
+kick, snare, and hat fixture. `OMADROP_DISABLE_ART=1` skips the cover sequence,
+and `OMADROP_AUTO_NEXT_MS` requests one preset transition after the given number
+of milliseconds. `bin/motion-capture` uses these controls to inspect the native
+SDL renderer without manual input. `OMADROP_REACTION_SCALE=0` disables the
+authored post-process movement for deterministic native-versus-authored A/Bs.
 
 Album art comes from MPRIS, holds for five seconds, then dissolves over five
 seconds in coordinated ribbons. Cover glyphs use peak luminance for dot
@@ -76,6 +85,8 @@ linework beside pale highlights.
 - A live, GPU-only projectM-to-ASCII handoff works in an SDL OpenGL window.
 - Per-preset topology and reaction profiles are required. A universal overlay
   cannot make every MilkDrop composition feel musically intentional.
+- Hit envelopes preserve transient strength, so harder detected hits produce
+  stronger preset gestures instead of the same binary pulse.
 - Album covers and preset frames need different color sampling. Brightest-pixel
   pooling preserves preset hairlines but can wash out cover palettes.
 

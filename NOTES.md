@@ -17,8 +17,11 @@ path.
 Implemented in the native path:
 
 - PipeWire sink capture and six-role audio analysis
-- topology-aware preset profiles and geometry deformation
-- bar/bass-boundary scene changes with dual-renderer transitions
+- bounded audio buffering that preserves normal packet bursts and drops only
+  excess backlog after render stalls
+- output-specific audio/video calibration and raw-audio analyzer replay
+- authored per-preset kick, snare, and hat geometry deformation
+- one-to-two-bar scene changes with independently reacting dual renderers
 - randomized curated selection with recent-preset exclusion
 - MPRIS cover hold, ribbon dissolve, and album-derived scene palette
 - color-aware cover glyph sampling that separates dot activation from color
@@ -34,7 +37,7 @@ Current curated rotation:
 3. Aderrasi, Halls of Centrifuge
 4. Martin, Night Cathedral
 5. Aderrasi, Bitterfeld
-6. Unchained, Morat's Final Voyage
+6. Aderrasi + Geiss, Airhandler (Painterly Kaleidoscope 2)
 
 The next product work is broader top-tier preset qualification, per-preset
 reaction tuning, transition polish, packaging, and a documented public install

@@ -5,6 +5,9 @@ experiments/projectm-ascii/projectm-ascii
 experiments/projectm-ascii/projectm-ascii-live
 experiments/projectm-ascii/audio-features-test
 experiments/projectm-ascii/preset-profiles-test
+experiments/projectm-ascii/preset-adapters-test
+experiments/projectm-ascii/audio-queue-test
+experiments/projectm-ascii/audio-feature-replay
 site/.astro/
 site/dist/
 site/node_modules/

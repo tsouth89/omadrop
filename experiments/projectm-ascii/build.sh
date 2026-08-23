@@ -16,3 +16,12 @@ g++ -std=c++20 -O2 -Wall -Wextra audio_features_test.cpp \
 
 g++ -std=c++20 -O2 -Wall -Wextra preset_profiles_test.cpp \
   -o preset-profiles-test
+
+g++ -std=c++20 -O2 -Wall -Wextra preset_adapters_test.cpp \
+  -o preset-adapters-test
+
+g++ -std=c++20 -O2 -Wall -Wextra audio_queue_test.cpp \
+  -o audio-queue-test
+
+g++ -std=c++20 -O2 -Wall -Wextra audio_replay.cpp \
+  -o audio-feature-replay $(pkg-config --cflags --libs fftw3f)

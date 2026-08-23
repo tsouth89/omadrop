@@ -86,7 +86,9 @@ modes already encountered.
 cd experiments/projectm-ascii
 ./build.sh
 ./audio-features-test
+./audio-queue-test
 ./preset-profiles-test
+./preset-adapters-test
 ```
 
 The landing page is an Astro project in [`site/`](site/):

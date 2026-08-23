@@ -90,6 +90,9 @@ private:
         }
 
         features_.kick = features_.snare = features_.hat = false;
+        features_.kickImpact *= 0.88f;
+        features_.snareImpact *= 0.84f;
+        features_.hatImpact *= 0.72f;
         std::array<float, AudioFeatures::roleCount> positiveFlux{};
         for (std::size_t role = 0; role < AudioFeatures::roleCount; ++role) {
             const float positive = std::max(0.0f, magnitude[role] - previous_[role]);
@@ -113,6 +116,11 @@ private:
         const float middleEnergy = 0.35f * magnitude[2] + 0.35f * magnitude[3]
                                  + 0.30f * magnitude[4];
         const float highEnergy = magnitude[5];
+        auto impactStrength = [](float level, float levelThreshold) {
+            const float levelExcess = std::clamp(
+                (level - levelThreshold) / 24.0f, 0.0f, 1.0f);
+            return 0.45f + 0.90f * levelExcess;
+        };
         const bool warmedUp = frame_ >= 12;
         if (warmedUp && kickCooldown_ == 0 && kickFlux > 2.25f
             && std::max(features_.level[0], features_.level[1]) > 1.08f
@@ -121,15 +129,17 @@ private:
             && lowEnergy > middleEnergy * 1.20f
             && lowEnergy > highEnergy * 1.40f) {
             features_.kick = true;
-            features_.kickImpact = 1.0f;
+            features_.kickImpact = impactStrength(
+                std::max(features_.level[0], features_.level[1]), 1.08f);
             kickCooldown_ = 16;
         }
-        if (warmedUp && snareCooldown_ == 0 && snareFlux > 2.15f
-            && std::max(features_.level[3], features_.level[4]) > 1.06f
+        if (warmedUp && snareCooldown_ == 0 && snareFlux > 1.45f
+            && std::max(features_.level[3], features_.level[4]) > 1.03f
             && middleChange > lowChange * 0.72f
             && middleChange > highChange * 0.92f) {
             features_.snare = true;
-            features_.snareImpact = 1.0f;
+            features_.snareImpact = impactStrength(
+                std::max(features_.level[3], features_.level[4]), 1.06f);
             snareCooldown_ = 10;
         }
         if (warmedUp && hatCooldown_ == 0 && hatFlux > 2.0f
@@ -137,15 +147,12 @@ private:
             && highChange > lowChange * 0.55f
             && highChange > middleChange * 0.88f) {
             features_.hat = true;
-            features_.hatImpact = 1.0f;
+            features_.hatImpact = impactStrength(features_.level[5], 1.05f);
             hatCooldown_ = 5;
         }
         if (kickCooldown_ > 0) --kickCooldown_;
         if (snareCooldown_ > 0) --snareCooldown_;
         if (hatCooldown_ > 0) --hatCooldown_;
-        features_.kickImpact *= 0.88f;
-        features_.snareImpact *= 0.84f;
-        features_.hatImpact *= 0.72f;
         updateClock();
         ++frame_;
         return features_;
