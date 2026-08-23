@@ -17,6 +17,7 @@ classic MilkDrop presets an unmistakable Omarchy finish.
 - Kick, snare, hat, bass, mid, and treble analysis
 - Scene-aware movement that deforms preset geometry
 - Smooth, music-aware preset transitions
+- Randomized curated openings with repeat avoidance
 - Optional ASCII or traditional MilkDrop rendering
 - Paired fullscreen output across multiple Hyprland monitors
 

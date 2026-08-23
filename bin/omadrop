@@ -58,6 +58,7 @@ if [[ -n $running ]]; then
 fi
 
 export OMADROP_FULLSCREEN=${OMADROP_FULLSCREEN:-1}
+export OMADROP_RANDOM_SEED=${OMADROP_RANDOM_SEED:-$(((RANDOM << 16) ^ RANDOM))}
 if [[ $monitor_mode == single ]]; then
   export OMADROP_DISPLAY_INDEX=${OMADROP_DISPLAY_INDEX:-0}
   exec "$root/experiments/projectm-ascii/run-curated.sh" "$@"

@@ -402,8 +402,14 @@ int main(int argc, char** argv) {
         projectm_set_texture_search_paths(engine, texturePaths, 2);
     }
     std::vector<std::string> presets(argv + 1, argv + argc);
-    std::size_t presetIndex = 0;
-    std::mt19937 randomEngine(std::random_device{}());
+    const unsigned int randomSeed = std::getenv("OMADROP_RANDOM_SEED")
+        ? static_cast<unsigned int>(std::strtoul(std::getenv("OMADROP_RANDOM_SEED"), nullptr, 10))
+        : std::random_device{}();
+    std::mt19937 randomEngine(randomSeed);
+    std::uniform_int_distribution<std::size_t> openingPreset(0, presets.size() - 1);
+    std::size_t presetIndex = std::getenv("OMADROP_START_PRESET")
+        ? static_cast<std::size_t>(std::max(0, std::atoi(std::getenv("OMADROP_START_PRESET")))) % presets.size()
+        : openingPreset(randomEngine);
     std::deque<std::size_t> recentPresets{presetIndex};
     auto chooseAutomaticPreset = [&](PresetEnergy targetEnergy) {
         struct Candidate { std::size_t index; float score; };
@@ -618,11 +624,12 @@ int main(int argc, char** argv) {
                 const std::string artPath = artHelperOutput;
                 if (!artPath.empty() && artPath != currentArtPath
                     && loadPngTexture(artPath, coverTexture, coverAspect)) {
+                const bool trackChanged = hasCover;
                 currentArtPath = artPath;
                 albumColor = loadPaletteColor(artPath);
                 hasCover = true;
                 coverStartedAt = now;
-                presetIndex = 0;
+                if (trackChanged) presetIndex = chooseAutomaticPreset(PresetEnergy::Medium);
                 recentPresets.clear();
                 recentPresets.push_back(presetIndex);
                 presetTransitionActive = false;
