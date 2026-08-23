@@ -1,19 +1,18 @@
 #!/bin/bash
 # Quick environment check for a fresh machine.
 echo "== Omadrop environment =="
-for c in qs grim magick pactl pw-record python3; do
+for c in magick curl pactl pw-record gdbus busctl pkg-config; do
   printf '%-12s %s\n' "$c" "$(command -v $c || echo MISSING)"
 done
-printf '%-12s %s\n' "qsb" "$( [ -x /usr/lib/qt6/bin/qsb ] && echo /usr/lib/qt6/bin/qsb || echo 'MISSING (pacman -S qt6-shadertools)')"
-python3 -c "import numpy; print('numpy       ' + numpy.__version__)" 2>/dev/null || echo "numpy       MISSING"
 echo
 echo "default sink: $(pactl get-default-sink 2>/dev/null)"
 echo "playing now : $(pactl list short sink-inputs 2>/dev/null | wc -l) stream(s)"
-echo "shaders     : $( [ -f "$(dirname "$0")/../shaders/display.frag.qsb" ] && echo baked || echo 'NOT BAKED - run ./build.sh')"
-font=$(fc-match -f "%{family[0]}" "${OMADROP_FONT:-monospace}" 2>/dev/null)
-echo "mono font   : $font"
-if fc-match -f "%{family[0]}" "${OMADROP_FONT:-monospace}:charset=2800" 2>/dev/null | grep -qi "$font"; then
-  echo "braille     : present in $font"
-else
-  echo "braille     : MISSING from $font — install a Nerd Font or set OMADROP_FONT"
-fi
+echo "libprojectM : $(pkg-config --modversion projectM-4 2>/dev/null || echo MISSING)"
+echo "SDL2        : $(pkg-config --modversion sdl2 2>/dev/null || echo MISSING)"
+echo "GLEW        : $(pkg-config --modversion glew 2>/dev/null || echo MISSING)"
+echo "libpng      : $(pkg-config --modversion libpng 2>/dev/null || echo MISSING)"
+echo "presets     : $(find /usr/share/projectM/presets -type f -name '*.milk' 2>/dev/null | wc -l)"
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+live="$root/experiments/projectm-ascii/projectm-ascii-live"
+echo "renderer    : $( [[ -x $live ]] && echo built || echo 'NOT BUILT')"
+echo "album art   : $("$root/bin/mpris-art" 2>/dev/null || echo unavailable)"

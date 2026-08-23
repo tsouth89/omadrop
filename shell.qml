@@ -98,6 +98,13 @@ ShellRoot {
     if (path.length === 0 || root.revealedPath === path) return
     root.revealedPath = path
     root.phaseT = 0
+    // Every track begins in Genesis. The first abstract world is responsible
+    // for carrying the cover's own structure into motion.
+    root.sceneA = 1
+    root.sceneB = 4
+    root.sceneBlend = 0
+    root.sceneT = 0
+    root.changeArmed = false
     root.showingB = !root.showingB
     fadeAnim.to = root.showingB ? 1 : 0
     fadeAnim.restart()
@@ -451,7 +458,7 @@ ShellRoot {
       readonly property vector4d uTint: Qt.vector4d(root.tintColor.r, root.tintColor.g,
                                             root.tintColor.b, root.tintAmount)
       readonly property vector4d uFx: Qt.vector4d(root.vignette, root.hasArt ? 1 : 0, root.musicalTime, root.forceBeat ? 1.0 : root.pulse)
-      readonly property vector4d uScene: Qt.vector4d(root.sceneA, root.sceneB, root.sceneBlend, 0)
+      readonly property vector4d uScene: Qt.vector4d(root.sceneA, root.sceneB, root.sceneBlend, root.sceneT)
       readonly property vector4d uSp0: root.spec ? Qt.vector4d(root.spec[0], root.spec[1], root.spec[2], root.spec[3]) : Qt.vector4d(0,0,0,0)
       readonly property vector4d uSp1: root.spec ? Qt.vector4d(root.spec[4], root.spec[5], root.spec[6], root.spec[7]) : Qt.vector4d(0,0,0,0)
       readonly property vector4d uSp2: root.spec ? Qt.vector4d(root.spec[8], root.spec[9], root.spec[10], root.spec[11]) : Qt.vector4d(0,0,0,0)
@@ -693,51 +700,53 @@ ShellRoot {
   }
   property real musicalTime: 0
 
-  // ------------------------------------------------- scene director
-  // Once the cover has fully devolved, cycle abstract scenes with a long
-  // crossfade. Timed for now; the intent is to trigger these on musical
-  // section changes once novelty detection exists.
+  // ------------------------------------------------ preset director
+  // A preset is an authored visual world, not a randomly selected effect.
+  // The compatibility graph keeps successive worlds related by geometry and
+  // motion, so the show develops instead of behaving like a shuffle reel.
   readonly property int sceneCount: 8
   // A scene runs at least minScene and at most maxScene. Inside that window,
   // structural novelty decides when -- and the change is held until the next
   // onset so it lands on a beat rather than mid-bar.
-  property real minScene: 8.0
-  property real maxScene: 18.0
-  readonly property real sceneCrossfade: 2.5
-  property int sceneA: 0
-  property int sceneB: 1
+  property real minScene: 10.0
+  property real maxScene: 16.0
+  readonly property real sceneCrossfade: 2.8
+  property int sceneA: 1
+  property int sceneB: 4
   property real sceneBlend: 0
   property real sceneT: 0
   property bool changeArmed: false
   property real prevBarPhase: 0
 
 
-  // Shuffle bag: play a shuffled permutation of every scene, then reshuffle.
-  // Picking at random each time means A -> B -> A happens often; with eight
-  // scenes there is a ~1-in-7 chance of returning to the one just seen. A bag
-  // guarantees all eight appear before any repeats.
-  property var sceneBag: []
+  readonly property var presetNames: [
+    "genesis", "tunnel", "interference", "rain",
+    "spiral", "lattice", "contour", "streams"
+  ]
+  readonly property var presetSuccessors: [
+    [1],          // genesis is debug-only; leave it immediately
+    [4, 2],       // tunnel -> spiral or waves
+    [6, 1],       // waves -> contour or tunnel
+    [7, 6],       // rain -> streams or contour
+    [7, 1],       // spiral -> streams or tunnel
+    [6, 3],       // lattice -> contour or rain
+    [2, 5],       // contour -> waves or lattice
+    [4, 3]        // streams -> spiral or rain
+  ]
 
-  function drawScene(exclude) {
-    if (!root.sceneBag || root.sceneBag.length === 0) {
-      var b = []
-      for (var i = 0; i < root.sceneCount; i++) b.push(i)
-      for (var j = b.length - 1; j > 0; j--) {
-        var k = Math.floor(Math.random() * (j + 1))
-        var tmp = b[j]; b[j] = b[k]; b[k] = tmp
-      }
-      // Never let a reshuffle put the current scene first.
-      if (b[0] === exclude && b.length > 1) { b[0] = b[1]; b[1] = exclude }
-      root.sceneBag = b
-    }
-    var next = root.sceneBag[0]
-    root.sceneBag = root.sceneBag.slice(1)
-    return next
+  function drawScene(current) {
+    var choices = root.presetSuccessors[current] || [0]
+    if (choices.length === 1) return choices[0]
+
+    // Percussive, energetic passages prefer the first successor. Harmonic or
+    // quieter passages take the second. This is deliberately a small musical
+    // decision, not randomness disguised as variety.
+    var driving = root.perc > root.harm * 1.08 || root.slowEnergy > 0.62
+    return choices[driving ? 0 : 1]
   }
 
   function nextScene() {
     if (sceneBlendAnim.running) return
-    root.sceneT = 0
     sceneBlendAnim.start()
   }
 
@@ -754,6 +763,8 @@ ShellRoot {
       root.sceneA = root.sceneB
       root.sceneB = root.drawScene(root.sceneA)
       root.sceneBlend = 0
+      root.sceneT = 0
+      console.log("preset:", root.presetNames[root.sceneA], "->", root.presetNames[root.sceneB])
     }
   }
   // Tint for monochrome covers. 0 = leave the art's own greys alone, which

@@ -1,5 +1,122 @@
 #!/bin/bash
-# The default Qt render loop caps this at ~63fps regardless of workload;
-# threaded syncs to the actual display refresh instead.
-export QSG_RENDER_LOOP=${QSG_RENDER_LOOP:-threaded}
-exec qs -p "$(dirname "$(readlink -f "$0")")/../shell.qml" "$@"
+set -euo pipefail
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+runtime_dir=${XDG_RUNTIME_DIR:-/tmp}/omadrop
+
+if [[ ${1:-} == --toggle-secondary ]]; then
+  pid_file=$runtime_dir/display-1.pid
+  state_file=$runtime_dir/display-1.state
+  [[ -r $pid_file ]] || exit 0
+  pid=$(<"$pid_file")
+  kill -0 "$pid" 2>/dev/null || exit 0
+  client=$(hyprctl clients -j 2>/dev/null | jq -c --argjson pid "$pid" \
+    '.[] | select(.pid == $pid)' | head -n 1)
+  [[ -n $client ]] || exit 0
+  workspace_name=$(jq -r '.workspace.name' <<<"$client")
+  if [[ $workspace_name == special:omadrop-secondary-hidden ]]; then
+    [[ -r $state_file ]] || exit 0
+    read -r monitor workspace <"$state_file"
+    hyprctl eval "hl.dispatch(hl.dsp.window.move({ workspace = '$workspace', window = 'pid:$pid' }))" >/dev/null
+    hyprctl eval "hl.dispatch(hl.dsp.window.move({ monitor = '$monitor', window = 'pid:$pid' }))" >/dev/null
+    hyprctl eval "hl.dispatch(hl.dsp.window.fullscreen({ mode = 'fullscreen', action = 'set', window = 'pid:$pid' }))" >/dev/null
+  else
+    monitor_id=$(jq -r '.monitor' <<<"$client")
+    monitor=$(hyprctl monitors -j | jq -r --argjson id "$monitor_id" '.[] | select(.id == $id) | .name')
+    workspace=$(jq -r '.workspace.id' <<<"$client")
+    printf '%s %s\n' "$monitor" "$workspace" >"$state_file"
+    hyprctl eval "hl.dispatch(hl.dsp.window.move({ workspace = 'special:omadrop-secondary-hidden', window = 'pid:$pid' }))" >/dev/null
+  fi
+  exit 0
+fi
+
+monitor_mode=${OMADROP_MONITORS:-all}
+case ${1:-} in
+  --all) monitor_mode=all; shift ;;
+  --single) monitor_mode=single; shift ;;
+esac
+
+# Explicit recovery path while the projectM application replaces the QML
+# prototype. The normal Omarchy hotkey always exercises the unified renderer.
+if [[ ${OMADROP_LEGACY:-0} == 1 ]]; then
+  export QSG_RENDER_LOOP=${QSG_RENDER_LOOP:-threaded}
+  exec qs -p "$root/shell.qml" "$@"
+fi
+
+live="$root/experiments/projectm-ascii/projectm-ascii-live"
+[[ -x $live ]] || {
+  echo "omadrop: unified renderer is not built; run ./experiments/projectm-ascii/build.sh" >&2
+  exit 1
+}
+
+# Match Quickshell's old singleton feel: the Omarchy hotkey is a true toggle.
+# Anchor the full executable path so this never catches an unrelated projectM
+# frontend or the pgrep command itself.
+running=$(pgrep -f "^${live//./\\.}( |$)" || true)
+if [[ -n $running ]]; then
+  kill -TERM $running 2>/dev/null || true
+  exit 0
+fi
+
+export OMADROP_FULLSCREEN=${OMADROP_FULLSCREEN:-1}
+if [[ $monitor_mode == single ]]; then
+  export OMADROP_DISPLAY_INDEX=${OMADROP_DISPLAY_INDEX:-0}
+  exec "$root/experiments/projectm-ascii/run-curated.sh" "$@"
+fi
+
+mapfile -t monitor_names < <(hyprctl monitors -j 2>/dev/null | jq -r 'sort_by(.id)[].name' 2>/dev/null)
+display_count=${#monitor_names[@]}
+if [[ ! $display_count =~ ^[1-9][0-9]*$ ]]; then
+  display_count=1
+  monitor_names=("")
+fi
+
+pids=()
+stop_renderers() {
+  ((${#pids[@]})) && kill -TERM "${pids[@]}" 2>/dev/null || true
+  rm -f "$runtime_dir"/display-*.pid "$runtime_dir"/display-*.state
+}
+trap stop_renderers TERM INT EXIT
+mkdir -p "$runtime_dir"
+for ((display_index = 0; display_index < display_count; display_index++)); do
+  OMADROP_DISPLAY_INDEX=$display_index OMADROP_FULLSCREEN=0 \
+    "$root/experiments/projectm-ascii/run-curated.sh" "$@" &
+  pids+=("$!")
+  printf '%s\n' "$!" >"$runtime_dir/display-$display_index.pid"
+done
+
+# SDL's Wayland backend cannot choose a Hyprland output. Route each window by
+# its exact PID after the album-art preload reveals it, then make it fullscreen.
+if command -v hyprctl >/dev/null && [[ -n ${monitor_names[0]} ]]; then
+  for ((display_index = 0; display_index < display_count; display_index++)); do
+    pid=${pids[$display_index]}
+    for ((attempt = 0; attempt < 80; attempt++)); do
+      if hyprctl clients -j 2>/dev/null | jq -e --argjson pid "$pid" \
+        'any(.[]; .pid == $pid)' >/dev/null; then
+        break
+      fi
+      sleep 0.1
+    done
+    monitor=${monitor_names[$display_index]}
+    monitor_id=$(hyprctl monitors -j | jq -r --arg name "$monitor" '.[] | select(.name == $name) | .id')
+    confirmed=0
+    for ((attempt = 0; attempt < 30 && confirmed < 3; attempt++)); do
+      hyprctl eval "hl.dispatch(hl.dsp.window.move({ monitor = '$monitor', window = 'pid:$pid' }))" \
+        >/dev/null 2>&1 || true
+      if [[ $OMADROP_FULLSCREEN != 0 ]]; then
+        hyprctl eval "hl.dispatch(hl.dsp.window.fullscreen({ mode = 'fullscreen', action = 'set', window = 'pid:$pid' }))" \
+          >/dev/null 2>&1 || true
+      fi
+      if hyprctl clients -j 2>/dev/null | jq -e --argjson pid "$pid" --argjson monitor "$monitor_id" \
+        --argjson fullscreen "$([[ $OMADROP_FULLSCREEN != 0 ]] && printf 2 || printf 0)" \
+        'any(.[]; .pid == $pid and .monitor == $monitor and .fullscreen == $fullscreen)' >/dev/null; then
+        ((confirmed += 1))
+      else
+        confirmed=0
+      fi
+      sleep 0.1
+    done
+  done
+fi
+# The windows are a pair. As soon as either renderer exits, the EXIT trap
+# terminates its sibling and clears their runtime state.
+wait -n "${pids[@]}" || true

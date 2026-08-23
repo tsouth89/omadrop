@@ -8,16 +8,95 @@ this is the engineering log and the roadmap.
 
 ## Where this is going (and how far off it is)
 
+### Architecture decision: libprojectM engine, Omadrop material
+
+The hardcoded scene library is no longer the product direction. A successful
+spike in `experiments/projectm-ascii` renders real `.milk` presets through
+libprojectM and converts the finished frame into braille-style dots. Both thin
+feedback lines and large tonal custom shapes remain coherent after conversion.
+
+Production direction:
+
+    libprojectM preset + PCM -> continuous OpenGL frame
+                            -> Omadrop glyph/material composite
+                            -> Wayland layer surface
+
+The installed corpus provides more than 4,000 presets immediately. Omadrop
+will own PipeWire capture, MPRIS album transitions, preset curation, ASCII
+materials, live controls, and eventual native presets. libprojectM supplies the
+composition engine and `.milk` compatibility.
+
+ASCII is a presentation mode, not a permanent restriction. The production UI
+must allow instant switching between Omadrop's ASCII material and the original
+MilkDrop composite. The live spike uses `a` for this toggle.
+
+The native renderer now adds an Omadrop conductor after projectM. Six spectral
+roles produce separate kick, snare, and hat envelopes. A preset profile maps
+those envelopes into topology-specific deformation of the preset's own
+objects, with a measured per-preset gain. This is intentionally not a ring,
+flash, or camera-shake overlay.
+
+The automatic director uses the same profiles for energy fit, topology family,
+motion direction, ASCII density, dwell range, and transition duration. Recent
+presets are excluded before a randomized choice among the best candidates.
+Transitions begin on a confident bar boundary or a low-confidence bass onset,
+with a deadline for quiet material.
+
+The spike exposed a critical display rule: one point sample per braille dot
+misses physical 1px waves and outlines. Each dot must pool its full source
+subcell, preferably with a highlight-preserving max or weighted-max filter.
+
 **The target:** MilkDrop for Omarchy — rendered in braille/ASCII. Not a
 spectrum readout with effects layered on. A field that is *alive*: things
 drifting, trailing, forming and dissolving on their own, that you can follow
 with your eye, with the music shaping them rather than driving every frame.
 
-**Current state: roughly 80% of a good visualiser, but not MilkDrop.** Cover
-reveal, eight abstract scenes, beat tracking, HPSS, layered time scales — all
-working. What it still is *not* is autonomous. The user's words: "animations
-that are actually animated and doing stuff in the background, not tied to the
-beat, that you can follow."
+**Current state: the rendering engine is viable, but the composition model is
+being rebuilt.** Cover reveal, feedback, beat tracking, HPSS, and layered time
+scales work. The old top-level model was eight unrelated procedural scenes
+under shared motion and a shuffle bag. That reproduced MilkDrop mechanisms
+without reproducing its authored preset system.
+
+### Composition architecture
+
+A preset owns a complete visual world: its focal geometry, feedback behavior,
+camera intent, musical mappings, album-art lineage, lifecycle, and compatible
+successors. A scene function is only a reusable primitive inside that world.
+
+The director must not choose arbitrary effects. Successors form a compatibility
+graph, with musical state selecting between authored options. Presets run long
+enough to develop, and transitions preserve a shared axis, topology, or motion
+direction.
+
+The first preset is **Genesis**. It samples the cover luminance and edges along
+the same radial current that forms its abstract geometry. The cover therefore
+becomes persistent strands instead of fading out while an unrelated field fades
+in. This is the pattern every future preset family should follow.
+
+Current transitional state:
+
+- Genesis replaces the old generic rings scene at index 0.
+- The shuffle bag is gone; a compatibility graph selects successors.
+- Feedback zoom, rotation, and warp strength now follow the active preset.
+- Preset dwell is 18-38 seconds with a four-second transition.
+- The remaining seven fields are still provisional primitives, not finished
+  premium presets.
+
+Genesis now assigns musical streams to separate parts of one composition:
+
+| input | visual role |
+|---|---|
+| bass ratio | radial depth pull |
+| mid ratio | torque through the strand field |
+| treble ratio | fragments shed from cover edges |
+| HPSS percussive | travelling ridge inside the radial subject |
+| HPSS harmonic | sustained body of the current |
+
+Its lifecycle moves from recognizable cover structure through developing
+current and increasing detail, then reduces new material during the transition
+so feedback carries the existing world into its successor. Generic burst and
+filigree layers are now weighted per preset instead of being stamped over every
+composition.
 
 ### Frame feedback — IMPLEMENTED
 
@@ -129,23 +208,19 @@ or the analysis engine gets rewritten, menu/keybinding integration.
 
 ### Next, in order
 
-1. **Song-structure awareness.** Beat tracking gives position in the bar, not
-   position in the song; verse and chorus look identical. Novelty groundwork
-   exists in `analysis.py`.
-3. **Preset system.** MilkDrop's depth is its preset library, not its renderer.
-4. **Autonomous agents.** A few hundred particles with their own velocities and
-   lifetimes, advected by a slowly-evolving flow field, leaving trails in the
-   accumulator. These are the things the eye follows. Position state can live
-   in a small ping-ponged texture, or in QML JS if the count stays low.
-2. **Multiple composited layers.** Background field + midground agents +
-   foreground accents, each on its own time scale.
-3. **Preset system.** MilkDrop's real depth is its preset library. A preset
-   here = a named parameter set (scene weights, flow constants, palette rules,
-   feedback warp). Makes the thing extensible without new shader code, and
-   shareable — which matters for distribution.
-4. **Per-band time constants** for the 32 bands (bass slow, treble snappy).
-   Currently one shared attack/release curve across the spectrum.
-5. **Block/shade glyphs mixed into the atlas.** The texture still reads faintly
+1. **Finish Genesis as one complete premium lifecycle.** Cover, structural
+   handoff, development, peak, and release must read as one continuous event.
+2. **Preset parameter layer.** Move authored camera, feedback, layer, palette,
+   and response values out of scattered shader conditionals.
+3. **Musical-state director.** Classify calm, building, driving, suspended,
+   and releasing from novelty, HPSS, energy trend, and spectral shape.
+4. **Topology-preserving transitions.** Morph rings into tunnel depth, tunnel
+   spokes into spiral arms, streams into contours, and contours into lattice.
+5. **Multiple composited layers.** Background medium, focal subject, and
+   foreground accents, each selected by the preset rather than always enabled.
+6. **Autonomous agents where composition calls for them.** Their flow and
+   lifetime must reinforce the preset's dominant motion.
+7. **Block/shade glyphs mixed into the atlas.** The texture still reads faintly
    vertical-striped because braille dots are 2 wide and 4 tall. Mixing
    `░▒▓█▀▄` gives smoother tonal steps. Needs the glyph index to exceed 256,
    so the cell texture needs a second channel.

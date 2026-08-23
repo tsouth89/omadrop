@@ -11,7 +11,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 view;      // aspect, zoom, gain, edgeAmount
     vec4 tint;      // rgb tint for desaturated art, a = amount
     vec4 fx;        // vignette strength, reserved, reserved, reserved
-    vec4 scene;     // sceneA index, sceneB index, blend, spare
+    vec4 scene;     // preset A, preset B, blend, seconds in current preset
     vec4 pal0;      // dominant colours of the current cover
     vec4 pal1;
     vec4 pal2;

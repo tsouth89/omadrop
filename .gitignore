@@ -1,3 +1,12 @@
 cache/
 *.qsb
 __pycache__/
+experiments/projectm-ascii/projectm-ascii
+experiments/projectm-ascii/projectm-ascii-live
+experiments/projectm-ascii/audio-features-test
+experiments/projectm-ascii/preset-profiles-test
+site/.astro/
+site/dist/
+site/node_modules/
+site/media-source/
+docs/toolport-appimage-handoff.md

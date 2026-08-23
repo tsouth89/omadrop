@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")"
+# Arch's projectM-4.pc currently emits -l:projectM-4, but the installed shared
+# object follows the normal libprojectM-4.so naming convention.
+g++ -std=c++20 -O2 -Wall -Wextra main.cpp -o projectm-ascii \
+  $(pkg-config --cflags projectM-4 sdl2) \
+  $(pkg-config --libs sdl2) -lprojectM-4 -lGL
+
+g++ -std=c++20 -O2 -Wall -Wextra live.cpp -o projectm-ascii-live \
+  $(pkg-config --cflags projectM-4 sdl2 glew libpng fftw3f) \
+  $(pkg-config --libs sdl2 glew libpng fftw3f) -lprojectM-4 -lGL
+
+g++ -std=c++20 -O2 -Wall -Wextra audio_features_test.cpp \
+  -o audio-features-test $(pkg-config --cflags --libs fftw3f)
+
+g++ -std=c++20 -O2 -Wall -Wextra preset_profiles_test.cpp \
+  -o preset-profiles-test

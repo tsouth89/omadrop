@@ -1,0 +1,25 @@
+#!/bin/bash
+set -euo pipefail
+here=$(dirname "$(readlink -f "$0")")
+
+selected=
+fallback=
+while read -r service _; do
+  [[ $service == org.mpris.MediaPlayer2.* ]] || continue
+  [[ -n $fallback ]] || fallback=$service
+  status=$(gdbus call --session --dest "$service" \
+    --object-path /org/mpris/MediaPlayer2 \
+    --method org.freedesktop.DBus.Properties.Get \
+    org.mpris.MediaPlayer2.Player PlaybackStatus 2>/dev/null || true)
+  if [[ $status == *"'Playing'"* ]]; then selected=$service; break; fi
+done < <(busctl --user --list --no-legend 2>/dev/null)
+
+service=${selected:-$fallback}
+[[ -n $service ]] || exit 0
+metadata=$(gdbus call --session --dest "$service" \
+  --object-path /org/mpris/MediaPlayer2 \
+  --method org.freedesktop.DBus.Properties.Get \
+  org.mpris.MediaPlayer2.Player Metadata 2>/dev/null || true)
+url=$(sed -n "s/.*'mpris:artUrl': <'\([^']*\)'>.*/\1/p" <<<"$metadata")
+[[ -n $url ]] || exit 0
+exec "$here/art-fetch" "$url"

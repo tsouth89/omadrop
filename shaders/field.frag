@@ -11,7 +11,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 view;      // aspect, zoom, gain, edgeAmount
     vec4 tint;      // rgb tint for desaturated art, a = amount
     vec4 fx;        // vignette strength, reserved, reserved, reserved
-    vec4 scene;     // sceneA index, sceneB index, blend, spare
+    vec4 scene;     // preset A, preset B, blend, seconds in current preset
     vec4 pal0;      // dominant colours of the current cover
     vec4 pal1;
     vec4 pal2;
@@ -162,7 +162,8 @@ vec4 coverField(vec2 uv) {
     vec2 base = toArt(uv);
     {
         vec2 d = base - 0.5;
-        float rot = anim.y * 0.045 + audio.x * 0.012;
+        float motionGate = 0.16 + 0.84 * dis;
+        float rot = (anim.y * 0.025 + audio.x * 0.006) * motionGate;
         float cs = cos(rot), sn = sin(rot);
         base = 0.5 + vec2(d.x * cs - d.y * sn, d.x * sn + d.y * cs);
     }
@@ -178,30 +179,36 @@ vec4 coverField(vec2 uv) {
         // Ripple amplitude follows the spectrum by radius, so the artwork
         // itself carries the spectrum rather than pumping uniformly.
         float bandR = spectrum(clamp(rr * 1.7, 0.0, 1.0));
-        float amp = (audio.x * 0.040 + bandR * 0.030);
+        float amp = (audio.x * 0.026 + bandR * 0.018) * (0.16 + 0.84 * dis);
         base += (d / rr) * amp * sin(rr * 26.0 - t * 4.0);
     }
 
     // Mid: medium wavelength, lateral.
-    base.x += audio.y * 0.062 * sin(base.y * 17.0 - t * 2.6);
-    base.y += audio.y * 0.032 * sin(base.x * 13.0 + t * 2.1);
+    base.x += audio.y * mix(0.008, 0.042, dis) * sin(base.y * 17.0 - t * 2.6);
+    base.y += audio.y * mix(0.004, 0.022, dis) * sin(base.x * 13.0 + t * 2.1);
 
     // Treble: short wavelength, fast. Small amplitude, but motion at this
     // scale reads as shimmer and is visible where a brightness nudge is not.
     base += vec2(sin(base.y * 96.0 + t * 15.0),
-                 cos(base.x * 84.0 - t * 12.0)) * audio.z * 0.0052;
+                 cos(base.x * 84.0 - t * 12.0)) * audio.z * mix(0.0008, 0.0032, dis);
 
-    // Devolve: swirl and scatter grow as `dissolve` rises, carrying the cover
-    // apart into the abstract field.
+    // Devolve with one readable choreography. Omarchy's terminal effects work
+    // because the subject stays recognizable while rows or character groups
+    // follow a shared path. Broad ribbons peel sideways here; there is no
+    // per-pixel scatter, which only turns the image into colored noise.
     if (dis > 0.001) {
         vec2 c = base - 0.5;
-        float r = length(c);
-        float a = atan(c.y, c.x);
-        a += dis * (1.1 * sin(t * 0.25) + r * 3.4) + audio.z * 0.18 * sin(r * 16.0 - t * 2.0);
-        r += audio.x * 0.05 * sin(r * 11.0 - t * 1.6) - dis * 0.06 * sin(t * 0.6);
-        base = 0.5 + vec2(cos(a), sin(a)) * r;
-        base += (vec2(hash(floor(uv * 500.0)), hash(floor(uv * 500.0) + 7.3)) - 0.5)
-                * dis * dis * 0.5 * (0.35 + audio.w);
+        float ribbon = sin(c.y * 12.0 + t * 0.42);
+        float direction = sin(floor((c.y + 0.5) * 8.0) * 2.17) >= 0.0 ? 1.0 : -1.0;
+        float peel = dis * dis;
+        c.x += direction * peel * (0.10 + 0.09 * ribbon)
+             + sin(c.y * 7.0 - t * 0.55) * peel * (0.035 + audio.y * 0.018);
+        c.y += sin(c.x * 5.0 + t * 0.31) * peel * 0.022;
+        // Bass opens the ribbons through depth. Treble ripples their edges,
+        // but neither signal is allowed to reverse the dominant direction.
+        c *= 1.0 - peel * audio.x * 0.045;
+        c.x += sin(c.y * 54.0 + t * 5.0) * peel * audio.z * 0.0035;
+        base = 0.5 + c;
     }
 
     // Outside the cover, mirror the artwork outward at low intensity. Reads
@@ -215,7 +222,11 @@ vec4 coverField(vec2 uv) {
     float l = dot(col, vec3(0.299, 0.587, 0.114));
     // Spill is dimmer and falls away from the cover edge.
     float spill = 1.0 - smoothstep(0.0, 0.85, max(abs(base.x - 0.5), abs(base.y - 0.5)) - 0.5);
-    l *= mix(0.30 * spill, 1.0, inside);
+    // Keep the reveal legible. A bright mirrored spill turns the negative
+    // space into random dots and makes the square cover harder to read. The
+    // ambient field grows only as the image begins to dissolve.
+    float spillLevel = mix(0.0, 0.12, dis);
+    l *= mix(spillLevel * spill, 1.0, inside);
 
     // Structure. A pure luminance halftone reads as a fax; adding the local
     // gradient puts contours back so it reads as drawn.
@@ -283,26 +294,51 @@ vec2 aspectP(vec2 uv) { return (uv - 0.5) * vec2(view.x, 1.0); }
 
 
 
-// Concentric ripples riding the low end, with a wavefront released on a kick.
+// Genesis is a restrained radial composition. The cover peels into it during
+// dissolve, but the abstract field has its own clean silhouette instead of
+// repeatedly resampling the artwork into enlarged colored slabs.
 vec4 sceneRings(vec2 uv) {
-    float t = anim.x;
-    vec2 p = beatWarp(flowWarp(aspectP(uv)), 0.0);
-    p += vec2(sin(t * 0.13) * 0.06, cos(t * 0.11) * 0.05);
-    float r = length(p);
-    float aa = atan(p.y, p.x);
-    // A slight angular warp keeps the rings from reading as a flat bullseye.
-    r += 0.012 * sin(aa * 3.0 + t * 0.5);
+    float age = max(scene.w, 0.0);
+    float develop = smoothstep(5.0, 22.0, age);
+    float peak = smoothstep(20.0, 34.0, age);
+    float release = smoothstep(0.0, 1.0, scene.z);
+    vec2 p = flowWarp(aspectP(uv));
+    p += vec2(sin(mtime() * 0.13) * 0.045, cos(mtime() * 0.11) * 0.038);
+
+    // Each musical region owns visible geometry. Bass moves the main rings,
+    // mids bend segmented arcs, treble opens fine radial spokes, percussion
+    // releases one wavefront, and harmony holds the quiet background contour.
+    float bassDrive = clamp(rel.x - 0.82, 0.0, 2.2);
+    float midDrive = clamp(rel.y - 0.88, 0.0, 1.8);
+    float trebDrive = clamp(rel.z - 0.92, 0.0, 1.6);
+    float r = max(length(p), 0.01);
+    float a = atan(p.y, p.x);
     float mt = mtime();
-    float ringDir = sin(r * 26.0);
-    float kR = 22.0 + 14.0 * lfo(53.0, 0.0);
-    float w = sin(r * kR - mt * 2.1 - audio.x * 7.0 + ringDir * beat() * 4.0)
-            + 0.45 * sin(r * (kR * 2.05) - mt * 3.4);
-    // Radius maps to frequency: each ring answers to its own band, so the
-    // field shows the spectrum instead of pumping as one body.
     float bandR = spectrum(clamp(r * 1.5, 0.0, 1.0));
-    float l = smoothstep(0.15, 1.05, w) * exp(-r * (0.45 + 0.6 * lfo(81.0, 1.3))) * (0.35 + bandR * 1.15);
-    l *= 0.75 + audio.w * 0.45 + pulse() * 0.18;
-    return vec4(albumColor(uv, t), clamp(l, 0.0, 1.0));
+
+    float ringPhase = r * (20.0 + develop * 7.0) - mt * 1.45 - bassDrive * 1.8;
+    float rings = smoothstep(0.24, 0.035, abs(sin(ringPhase)));
+    rings *= 0.42 + bandR * 0.92;
+
+    float bend = midDrive * 0.42 * sin(r * 6.0 - mt * 0.31);
+    float arcPhase = a * (3.0 + peak * 2.0) + r * 10.0 + bend - mt * 0.34;
+    float arcs = smoothstep(0.22, 0.035, abs(sin(arcPhase)));
+    arcs *= smoothstep(-0.25, 0.70, sin(a * 2.0 - mt * 0.17));
+    arcs *= 0.22 + midDrive * 0.48 + harm() * 0.24;
+
+    float spokePhase = a * (10.0 + peak * 6.0) + sin(r * 8.0 - mt * 0.7);
+    float spokes = smoothstep(0.16, 0.025, abs(sin(spokePhase)));
+    spokes *= smoothstep(0.16, 0.42, r) * smoothstep(1.20, 0.55, r);
+    spokes *= trebDrive * (0.18 + develop * 0.30);
+
+    float waveRadius = music.x * (0.42 + develop * 0.62);
+    float wavefront = smoothstep(0.045, 0.0, abs(r - waveRadius)) * perc() * 0.72;
+    float l = max(rings, arcs) + spokes + wavefront;
+    l *= smoothstep(1.32, 0.08, r) * (1.0 - release * 0.32);
+    // Genesis is graphic, not smoky. Remove low-level residue before it enters
+    // feedback so braille dithering cannot turn every faint trail into stars.
+    l = smoothstep(0.20, 0.48, l);
+    return vec4(albumColor(uv, anim.x), clamp(l, 0.0, 1.0));
 }
 
 // Perspective tunnel: rings in depth, spokes in angle.
@@ -311,14 +347,27 @@ vec4 sceneTunnel(vec2 uv) {
     vec2 p = beatWarp(flowWarp(aspectP(uv)), 0.7);
     float r = max(length(p), 0.02);
     float a = atan(p.y, p.x);
-    float depth = (0.22 + 0.22 * lfo(59.0, 0.6)) / max(r, 0.05) + mtime() * 0.62 + audio.x * 0.6;
+    float bassDrive = clamp(rel.x - 0.82, 0.0, 2.0);
+    float midDrive = clamp(rel.y - 0.88, 0.0, 1.8);
+    float trebDrive = clamp(rel.z - 0.92, 0.0, 1.6);
+    // Mids bend the angular framework while bass travels down depth. These
+    // motions are orthogonal, so they remain distinguishable in a full mix.
+    a += midDrive * 0.16 * sin(r * 7.0 - mtime() * 0.37);
+    float depth = (0.22 + 0.22 * lfo(59.0, 0.6)) / max(r, 0.05)
+                + mtime() * 0.62 + bassDrive * 0.48;
     // Kill the centre singularity: past this radius the ring frequency
     // outruns the cell grid and aliases into noise.
     float core = smoothstep(0.045, 0.20, r);
     depth += sin(depth * 6.2831853) * beat() * 0.30;
     float rings = smoothstep(0.20, 1.0, sin(depth * 6.2831)) * core;
+    rings *= 0.72 + harm() * 0.46;
     float spokeN = 8.0 + 12.0 * lfo(67.0, 2.1);
     float spokes = smoothstep(0.30, 1.0, sin(a * spokeN + t * 0.35 + depth * 0.6));
+    // Treble owns a finer counter-rotating spoke set. It appears on hats and
+    // cymbals without turning the entire tunnel into a brightness flash.
+    float fineSpokes = smoothstep(0.72, 1.0,
+        sin(a * (spokeN * 2.4) - t * 0.82 - depth * 0.25));
+    fineSpokes *= trebDrive * smoothstep(0.16, 0.36, r);
     // Frequency lies along the tunnel's depth: the vanishing point is the top
     // of the spectrum and the mouth is the bottom, so energy is seen
     // travelling down the tunnel rather than around it.
@@ -328,6 +377,11 @@ vec4 sceneTunnel(vec2 uv) {
     float l = max(rings * (0.28 + depthBand * 1.45),
                   spokes * (0.20 + (depthBand * 0.5 + angBand) * 0.9))
             * smoothstep(1.35, 0.10, r);
+    l += fineSpokes * 0.34 * smoothstep(1.20, 0.22, r);
+    // Percussion launches a single readable compression front down the same
+    // depth axis instead of stamping unrelated rings over the scene.
+    float hitDepth = fract(music.x) * 0.92;
+    l += smoothstep(0.045, 0.0, abs(r - hitDepth)) * perc() * 0.55;
     // A bright vanishing point sells the depth the rings can no longer draw.
     l += (1.0 - core) * 0.85 * (0.4 + audio.x * 0.8);
     l *= 0.85 + audio.w * 0.35;
@@ -550,6 +604,20 @@ vec4 field(vec2 uv) {
 vec2 warpSample(vec2 uv) {
     float t = mtime();
 
+    // Feedback behavior belongs to the preset. Interpolate the profiles while
+    // transitioning so camera intent changes with the visual world.
+    int pa = int(scene.x + 0.5);
+    int pb = int(scene.y + 0.5);
+    float aZoom = pa == 1 ? 1.029 : pa == 4 ? 1.014 : pa == 7 ? 1.008 : 1.021;
+    float bZoom = pb == 1 ? 1.029 : pb == 4 ? 1.014 : pb == 7 ? 1.008 : 1.021;
+    float baseZoom = mix(aZoom, bZoom, scene.z);
+    float aRot = pa == 4 ? 0.034 : pa == 5 ? 0.004 : pa == 7 ? 0.011 : 0.020;
+    float bRot = pb == 4 ? 0.034 : pb == 5 ? 0.004 : pb == 7 ? 0.011 : 0.020;
+    float rotScale = mix(aRot, bRot, scene.z);
+    float aWarp = pa == 5 ? 0.24 : pa == 6 ? 0.38 : pa == 7 ? 0.72 : 0.55;
+    float bWarp = pb == 5 ? 0.24 : pb == 6 ? 0.38 : pb == 7 ? 0.72 : 0.55;
+    float presetWarp = mix(aWarp, bWarp, scene.z);
+
     // Landscape: the long axis gets 1.0.
     float aspX = 1.0;
     float aspY = 1.0 / max(view.x, 0.001);
@@ -563,8 +631,8 @@ vec2 warpSample(vec2 uv) {
     // whose ratio is irrational never repeat, so the field wanders for minutes
     // without looping. THIS is where the motion the eye follows comes from --
     // deliberately not the audio.
-    float zoom = 1.021 + 0.013 * (0.60 * sin(t * 0.339) + 0.40 * sin(t * 0.276));
-    float rot  =       0.020 * (0.60 * sin(t * 0.381) + 0.40 * sin(t * 0.579));
+    float zoom = baseZoom + 0.013 * (0.60 * sin(t * 0.339) + 0.40 * sin(t * 0.276));
+    float rot  = rotScale * (0.60 * sin(t * 0.381) + 0.40 * sin(t * 0.579));
     float cx   = 0.5 + 0.006 * (0.60 * sin(t * 0.471) + 0.40 * sin(t * 0.297));
     float cy   = 0.5 + 0.006 * (0.60 * sin(t * 0.379) + 0.40 * sin(t * 0.351));
     float dx   =       0.0025 * (0.60 * sin(t * 0.234) + 0.40 * sin(t * 0.277));
@@ -595,7 +663,7 @@ vec2 warpSample(vec2 uv) {
     // f[] coefficients themselves oscillate -- the warp's spatial frequency
     // breathes over ~4-7s, which is the cheapest trick here and the thing
     // that reads as alive rather than as a static ripple.
-    float warpAmt = 0.55 + 0.35 * (rel.y - 1.0);
+    float warpAmt = presetWarp + 0.35 * (rel.y - 1.0);
     float wt = t * 1.0;
     float iws = 1.0;
     vec4 f = vec4(11.68 + 4.0 * cos(wt * 1.413 + 10.0),
@@ -681,15 +749,42 @@ void main() {
     // Feedback ramps in with the dissolve: the cover reveal stays crisp.
     // These constants were verified visually; do not adjust them together
     // with the source weights, or there is no baseline to fall back to.
-    float decay = (0.755 + 0.05 * slowEnergy()) * smoothstep(0.0, 0.30, anim.z);
+    int decayA = int(scene.x + 0.5);
+    int decayB = int(scene.y + 0.5);
+    float holdA = decayA == 0 ? 0.62 : 0.755;
+    float holdB = decayB == 0 ? 0.62 : 0.755;
+    float decay = (mix(holdA, holdB, scene.z) + 0.04 * slowEnergy())
+                * smoothstep(0.0, 0.30, anim.z);
     prev *= decay;
 
     vec4 bu = burstLayer(vTex);
     vec4 fi = filigreeLayer(vTex);
 
-    vec4 add = vec4(f.rgb * f.a, f.a) * 0.40
-             + vec4(bu.rgb * bu.a, bu.a) * 0.46
-             + vec4(fi.rgb * fi.a, fi.a) * 0.26;
+    int pa = int(scene.x + 0.5);
+    int pb = int(scene.y + 0.5);
+    // Accents are selected by the preset. Genesis keeps percussion inside its
+    // radial subject and tunnel now carry their percussion and treble in
+    // their own geometry. Generic accents made both read as a star field.
+    // Rain has no generic burst rings; the lattice suppresses random
+    // filigree to keep its grid legible.
+    float buA = (pa == 0 || pa == 1) ? 0.0 : pa == 3 ? 0.0 : pa == 5 ? 0.16 : 0.46;
+    float buB = (pb == 0 || pb == 1) ? 0.0 : pb == 3 ? 0.0 : pb == 5 ? 0.16 : 0.46;
+    float fiA = (pa == 0 || pa == 1) ? 0.0 : pa == 5 ? 0.0 : pa == 3 ? 0.10 : 0.26;
+    float fiB = (pb == 0 || pb == 1) ? 0.0 : pb == 5 ? 0.0 : pb == 3 ? 0.10 : 0.26;
+    float buWeight = mix(buA, buB, scene.z);
+    float fiWeight = mix(fiA, fiB, scene.z);
+
+    // This is a stable leaky integrator. A fixed source weight compounded with
+    // 0.8 feedback converges far above 1.0 and clamps into the colored blotches
+    // seen during the old dissolve. Injection must shrink as retention grows.
+    float injection = max(0.12, 1.0 - decay);
+    // The body is intentionally stronger than transient accents. At full
+    // feedback 0.30 is enough to keep sparse glyph structure visible without
+    // returning to the old 0.40 cover accumulation and mirrored echo bloom.
+    float bodyWeight = mix(0.88, 0.48, anim.z);
+    vec4 add = vec4(f.rgb * f.a, f.a) * bodyWeight
+             + vec4(bu.rgb * bu.a, bu.a) * buWeight * injection
+             + vec4(fi.rgb * fi.a, fi.a) * fiWeight * injection;
 
     fragColor = clamp(prev + add, 0.0, 1.0);
 }

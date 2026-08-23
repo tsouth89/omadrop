@@ -11,7 +11,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 view;      // aspect, zoom, gain, edgeAmount
     vec4 tint;      // rgb tint for desaturated art, a = amount
     vec4 fx;        // vignette strength, reserved, reserved, reserved
-    vec4 scene;     // sceneA index, sceneB index, blend, spare
+    vec4 scene;     // preset A, preset B, blend, seconds in current preset
     vec4 pal0;      // dominant colours of the current cover
     vec4 pal1;
     vec4 pal2;
@@ -57,7 +57,9 @@ vec4 sampleField(vec2 uv) {
     // Magnifying it instead (1.55) smears a bright centre over the whole frame
     // as a uniform wash -- which is exactly what it was doing.
     float echoZoom = 1.0 + 0.06 * sin(anim.x * 0.041);
-    float echoAlpha = 0.30;
+    // Echo is an abstract-preset device. Mirroring 30% of the album during
+    // the reveal overlays two different faces and destroys legibility.
+    float echoAlpha = 0.30 * smoothstep(0.30, 0.88, anim.z);
     vec2 e = (uv - 0.5) / echoZoom * vec2(-1.0, 1.0) + 0.5;   // orientation 1: flip X
     return mix(texture(fieldTex, uv), texture(fieldTex, fract(e)), echoAlpha);
 }
@@ -81,7 +83,12 @@ void main() {
             vec4 s = sampleField(dotPos / cols);
             // The accumulator saturates toward 1; without a curve here every
             // dot lights and the frame is a uniform haze again.
-            float lvl = smoothstep(0.24, 0.80, s.a);
+            // A stable feedback integrator carries lower values than the old
+            // saturating accumulator. Lower the abstract threshold gradually
+            // while keeping the album hold crisp and sparse.
+            float low = mix(0.24, 0.22, smoothstep(0.35, 1.0, anim.z));
+            float high = mix(0.80, 0.65, smoothstep(0.35, 1.0, anim.z));
+            float lvl = smoothstep(low, high, s.a);
             vec3 col = s.rgb / max(lvl, 0.002);      // undo premultiply
 
             vec2 dotId = vec2(cell.x * 2.0 + float(dx), cell.y * 4.0 + float(dy));
@@ -105,7 +112,9 @@ void main() {
 
     vec3 col = accum / max(weight, 1.0);
     float l = dot(col, vec3(0.299, 0.587, 0.114));
-    col = clamp(mix(vec3(l), col, 2.15), 0.0, 1.0);
+    // Preserve the cover palette and keep abstract gradients controlled. The
+    // old 2.15 multiplier pushed ordinary artwork into harsh neon blocks.
+    col = clamp(mix(vec3(l), col, 1.38), 0.0, 1.0);
     col *= 1.05 + 0.45 * (lit / 8.0);
 
     float ax = mod(idx, atlas.x);

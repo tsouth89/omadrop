@@ -1,0 +1,155 @@
+---
+import "../styles/global.css";
+
+const title = "Omadrop | See the music";
+const description = "MilkDrop, reborn for Omarchy. Album art dissolves into music-driven ASCII worlds.";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#050606" />
+    <link rel="canonical" href="https://omadrop.com/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Omadrop" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content="https://omadrop.com/" />
+    <meta property="og:image" content="https://omadrop.com/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Omadrop ASCII music visualization" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="https://omadrop.com/og.png" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <video
+          class="hero__film"
+          autoplay
+          muted
+          playsinline
+          preload="metadata"
+          poster="/media/hero-poster.avif"
+          aria-hidden="true"
+        >
+          <source media="(max-width: 720px)" src="/media/hero-mobile.mp4" type="video/mp4" />
+          <source src="/media/hero.mp4" type="video/mp4" />
+        </video>
+        <div class="hero__shade"></div>
+
+        <nav class="nav" aria-label="Primary">
+          <a class="wordmark" href="#top" aria-label="Omadrop home">
+            <span aria-hidden="true">⣿</span> omadrop
+          </a>
+          <span class="status"><i></i> in development</span>
+        </nav>
+
+        <div class="hero__copy" id="top">
+          <p class="eyebrow">music visualized natively on linux</p>
+          <h1 id="hero-title">see the<br />music.</h1>
+          <p class="lede">MilkDrop, reborn for Omarchy.</p>
+          <a class="button" href="#story">Watch it become alive <span aria-hidden="true">↓</span></a>
+        </div>
+
+        <p class="hero__note" aria-hidden="true">ALBUM ART / ASCII / AUDIO REACTIVE</p>
+        <div class="hero__index" aria-hidden="true"><span>01</span><b></b><span>OMADROP</span></div>
+      </section>
+
+      <section class="manifesto" id="story" aria-labelledby="story-title">
+        <p class="section-id">01 / THE RECORD BECOMES THE WORLD</p>
+        <h2 id="story-title">Not an effect<br />laid over music.</h2>
+        <p class="manifesto__body">
+          Omadrop starts with the record in your player, breaks it into light,
+          then carries its color and structure into a living visual world.
+          Every kick, snare, and high-frequency detail gets a different job.
+        </p>
+      </section>
+
+      <section class="proof" aria-labelledby="proof-title">
+        <div class="proof__intro">
+          <p class="section-id">02 / WATCH OMADROP</p>
+          <h2 id="proof-title">the record<br />becomes the world.</h2>
+          <p>Album art, dissolve, and the live visual response. Nothing covering the frame.</p>
+        </div>
+        <button class="proof__stage" type="button" aria-label="Open Omadrop performance fullscreen">
+          <video autoplay muted loop playsinline preload="none" poster="/media/queen-poster.avif" aria-hidden="true">
+            <source src="/media/queen.mp4" type="video/mp4" />
+          </video>
+          <span>view performance <b>↗</b></span>
+        </button>
+      </section>
+
+      <dialog class="player" aria-label="Omadrop performance">
+        <button class="player__close" type="button" aria-label="Close performance">close ×</button>
+        <video controls playsinline preload="metadata" poster="/media/queen-poster.avif">
+          <source src="/media/queen.mp4" type="video/mp4" />
+        </video>
+      </dialog>
+
+      <section class="engine" aria-labelledby="engine-title">
+        <div class="engine__field" aria-hidden="true">
+          <span>⠁⠂⠄⡀⢀⠠⠐⠈</span><span>⣿⣷⣤⣀⣀⣤⣾⣿</span><span>⠈⠐⠠⢀⡀⠄⠂⠁</span>
+        </div>
+        <div class="engine__content">
+          <p class="section-id">03 / THE SIGNAL PATH</p>
+          <h2 id="engine-title">One feedback engine.<br />Six musical roles.</h2>
+          <ol class="signal" aria-label="Omadrop signal path">
+            <li><span>01</span>album art</li>
+            <li><span>02</span>PipeWire audio</li>
+            <li><span>03</span>MilkDrop feedback</li>
+            <li><span>04</span>Omadrop material</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="close" aria-labelledby="close-title">
+        <p class="section-id">BUILT FOR OMARCHY</p>
+        <h2 id="close-title">your music.<br />your records.<br />your desktop, alive.</h2>
+        <div class="shortcut"><kbd>SUPER</kbd><span>+</span><kbd>SHIFT</kbd><span>+</span><kbd>V</kbd></div>
+        <p class="close__status">Public release details are coming when the visualizer is ready.</p>
+      </section>
+    </main>
+
+    <script>
+      const video = document.querySelector(".hero__film");
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+      if (video instanceof HTMLVideoElement) {
+        if (reduceMotion.matches) video.removeAttribute("autoplay");
+        video.addEventListener("ended", () => document.body.classList.add("hero-finished"));
+      }
+
+      const stage = document.querySelector(".proof__stage");
+      const player = document.querySelector(".player");
+      const playerVideo = player?.querySelector("video");
+      const closePlayer = player?.querySelector(".player__close");
+      if (stage instanceof HTMLButtonElement && player instanceof HTMLDialogElement && playerVideo instanceof HTMLVideoElement) {
+        stage.addEventListener("click", () => {
+          player.showModal();
+          playerVideo.currentTime = 0;
+          void playerVideo.play();
+        });
+        const close = () => {
+          playerVideo.pause();
+          player.close();
+        };
+        closePlayer?.addEventListener("click", close);
+        player.addEventListener("close", () => playerVideo.pause());
+        player.addEventListener("click", (event) => {
+          if (event.target === player) close();
+        });
+      }
+    </script>
+  </body>
+</html>

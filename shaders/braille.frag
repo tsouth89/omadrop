@@ -1,4 +1,6 @@
 #version 440
+// Legacy one-pass shader retained for reference. The running application uses
+// field.frag followed by display.frag; composition changes belong there.
 layout(location = 0) in vec2 vTex;
 layout(location = 0) out vec4 fragColor;
 
