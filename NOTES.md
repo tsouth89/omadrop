@@ -6,6 +6,44 @@ this is the engineering log and the roadmap.
 
 ---
 
+## Current implementation snapshot
+
+The production path is now `experiments/projectm-ascii/projectm-ascii-live`,
+an SDL/OpenGL application using libprojectM. `bin/omadrop` launches it on every
+connected Hyprland monitor by default and treats those windows as one paired
+session. Quickshell remains only as the explicit `OMADROP_LEGACY=1` recovery
+path.
+
+Implemented in the native path:
+
+- PipeWire sink capture and six-role audio analysis
+- topology-aware preset profiles and geometry deformation
+- bar/bass-boundary scene changes with dual-renderer transitions
+- randomized curated selection with recent-preset exclusion
+- MPRIS cover hold, ribbon dissolve, and album-derived scene palette
+- color-aware cover glyph sampling that separates dot activation from color
+  selection, preventing neutral highlights from erasing saturated artwork
+- instant ASCII/original MilkDrop toggle
+- paired multi-monitor launch, close, and secondary-display toggle
+- Astro landing page deployed from `site/` through Cloudflare Pages
+
+Current curated rotation:
+
+1. Aderrasi, Contortion
+2. Martin, Wire Dance
+3. Aderrasi, Halls of Centrifuge
+4. Martin, Night Cathedral
+5. Aderrasi, Bitterfeld
+6. Unchained, Morat's Final Voyage
+
+The next product work is broader top-tier preset qualification, per-preset
+reaction tuning, transition polish, packaging, and a documented public install
+path. The sections below preserve research and prototype lessons. Anything
+describing `shell.qml`, `field.frag`, Genesis, or eight procedural scenes is
+historical context rather than the active renderer.
+
+---
+
 ## Where this is going (and how far off it is)
 
 ### Architecture decision: libprojectM engine, Omadrop material
@@ -51,13 +89,10 @@ spectrum readout with effects layered on. A field that is *alive*: things
 drifting, trailing, forming and dissolving on their own, that you can follow
 with your eye, with the music shaping them rather than driving every frame.
 
-**Current state: the rendering engine is viable, but the composition model is
-being rebuilt.** Cover reveal, feedback, beat tracking, HPSS, and layered time
-scales work. The old top-level model was eight unrelated procedural scenes
-under shared motion and a shuffle bag. That reproduced MilkDrop mechanisms
-without reproducing its authored preset system.
+**Historical state:** this describes the superseded Quickshell procedural
+renderer. Its findings informed the native libprojectM path above.
 
-### Composition architecture
+### Historical composition architecture
 
 A preset owns a complete visual world: its focal geometry, feedback behavior,
 camera intent, musical mappings, album-art lineage, lifecycle, and compatible
@@ -370,10 +405,10 @@ mapped yet. Always wait:
 
 ---
 
-## Distribution (not started)
+## Distribution
 
-The user wants this shareable. It is a standalone Quickshell app, so options
-are a PKGBUILD/AUR package, or an Omarchy plugin that acts purely as a
-launcher and settings surface. It cannot be a normal in-shell plugin because
-`QSG_RENDER_LOOP` is process-wide and a heavy visualiser must not be able to
-stutter the bar. That reasoning is in README under Framing/Architecture.
+The source repository and landing page are public. The application is not yet
+packaged for end users. The likely distribution path is a PKGBUILD/AUR package
+or an Omarchy plugin that installs and launches the standalone native renderer.
+The renderer must remain out of the shell process so a heavy preset cannot
+stutter the desktop shell.

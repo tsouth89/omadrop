@@ -1,6 +1,6 @@
-# projectM to ASCII spike
+# Native projectM to ASCII renderer
 
-This experiment proves the replacement rendering architecture:
+This directory contains Omadrop's active rendering architecture:
 
 1. libprojectM renders a real `.milk` preset into an OpenGL framebuffer.
 2. The frame is sampled as 2x4 braille subcells.
@@ -20,9 +20,8 @@ preset='/usr/share/projectM/presets/presets_stock/Rovastar - Fractopia (Fantic D
 ./experiments/projectm-ascii/projectm-ascii "$preset" /tmp/native.ppm /tmp/ascii.ppm
 ```
 
-The current program feeds deterministic synthetic stereo audio and renders
-eight seconds as fast as possible. It is an architectural test, not the live
-Omadrop application.
+`projectm-ascii` remains the deterministic offline comparison tool.
+`projectm-ascii-live` is the live Omadrop renderer.
 
 ## Live GPU proof
 
@@ -41,10 +40,10 @@ Run the first curated rotating set with:
 ./experiments/projectm-ascii/run-curated.sh
 ```
 
-After 13 to 15 seconds, scenes wait for the next detected bass onset and begin
-a 6.5 second dual-renderer morph on that boundary. Both presets remain live
-through the dissolve. A six-second deadline handles
-quiet passages. Press `n` to skip immediately and Escape to quit. `[` and `]` adjust audio/video
+After each profile's minimum dwell, scenes wait for a confident bar boundary
+or bass onset and begin a 6 to 7.5 second dual-renderer morph. Both presets
+remain live through the transition, with a deadline for quiet passages. Press
+`n` to skip immediately and Escape to quit. `[` and `]` adjust audio/video
 alignment by 10 ms while listening. `OMADROP_SYNC_MS` sets the initial delay;
 Bluetooth outputs default to 180 ms and wired outputs to 35 ms. Manual changes
 are saved in `$XDG_CONFIG_HOME/omadrop/sync-ms`.
@@ -61,7 +60,12 @@ Press Escape to exit. The process prints `audio: PipeWire` when nonzero sink
 samples arrive. During silence it uses a synthetic development signal and
 prints `audio: synthetic fallback`.
 
-## Findings
+Album art comes from MPRIS, holds for five seconds, then dissolves over five
+seconds in coordinated ribbons. Cover glyphs use peak luminance for dot
+activation and a chroma-weighted representative color, preserving saturated
+linework beside pale highlights.
+
+## Current findings
 
 - The system libprojectM 4 C API embeds cleanly in an SDL OpenGL context.
 - The installed preset corpus contains more than 4,000 `.milk` files.
@@ -70,11 +74,14 @@ prints `audio: synthetic fallback`.
   them and should inform the production GPU composite shader.
 - The old hardcoded procedural scenes are no longer the product path.
 - A live, GPU-only projectM-to-ASCII handoff works in an SDL OpenGL window.
+- Per-preset topology and reaction profiles are required. A universal overlay
+  cannot make every MilkDrop composition feel musically intentional.
+- Album covers and preset frames need different color sampling. Brightest-pixel
+  pooling preserves preset hairlines but can wash out cover palettes.
 
 ## Next
 
-- Render continuously into a shared GPU texture.
-- Replace the CPU PPM conversion with the existing glyph-atlas display pass.
-- Feed real PipeWire PCM into `projectm_pcm_add_float()`.
-- Add MPRIS cover art as an Omadrop-controlled intro and transition layer.
-- Curate a known-good preset subset before enabling arbitrary preset loading.
+- Qualify more top-tier presets that remain coherent under ASCII conversion.
+- Tune musical roles and reaction gain per qualified preset.
+- Continue improving topology-preserving transitions.
+- Add packaging and an end-user install path.

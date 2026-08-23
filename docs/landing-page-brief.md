@@ -1,4 +1,18 @@
-# omadrop.com implementation brief
+# omadrop.com implementation brief and record
+
+## Current state
+
+The static Astro site now lives in `site/`, is connected to the public GitHub
+repository, and deploys from `master` through Cloudflare Pages. The canonical
+site is [omadrop.com](https://omadrop.com), with `omadrop.pages.dev` as the
+Pages origin.
+
+The deployed hero is a silent 33.6-second Guns N' Roses capture using the
+color-aware cover renderer. It plays once and holds its final visual frame.
+The focused performance is a continuous Journey capture beginning at 3:04 in
+the song; its first desktop frame was removed. Inline and expanded players
+start muted. Media URLs carry a version key because Cloudflare serves the
+assets with a seven-day browser cache.
 
 ## The decision
 
@@ -6,11 +20,9 @@ Build a single, fast product page around captured Omadrop output. Do not
 recreate the visualizer in JavaScript and do not use generated psychedelic
 art. The product is already the strongest art direction available.
 
-There is no site application or deploy configuration in this repository yet.
-Start the web build only after the hero master and poster below exist. Use a
-static Astro site with plain CSS and a small amount of client JavaScript. It
-keeps the page easy to host anywhere, permits componentized sections, and does
-not require a permanent browser runtime for decoration.
+The implemented site uses Astro, plain CSS, and a small amount of client
+JavaScript. Keep that constraint unless the product requires something the
+current stack cannot express.
 
 Suggested location when media is ready:
 
@@ -115,29 +127,19 @@ background reprises the opening cover as a sparse braille ghost. Final line:
 YOUR MUSIC. YOUR RECORDS. YOUR DESKTOP, ALIVE.
 ```
 
-## Required real media
+## Deployed real media
 
 Capture these before UI implementation. Use artwork and music that are owned,
 licensed, or explicitly cleared for the public site.
 
-The first hero master has now been reviewed. Its clean sequence is
-`00:06.00-00:21.30`: the cover remains readable until the dissolve begins near
-`00:12.50`, then a coherent preset world develops through the end. It does not
-return to a loop-compatible frame, so the site plays it once and holds the
-final frame. The derived public encodes are silent. Replace the source before a
-public launch unless the displayed album artwork is cleared for promotional
-use.
-
-| Deliverable | Deployed path | Source master | Exact content |
-|---|---|---|---|
-| Hero loop | `site/public/media/hero.webm` and `hero.mp4` | `site/media-source/hero-master.mkv` | 14 to 18 seconds, 2560x1440 at 60 fps. Cover held, ASCII becomes legible, dissolve completes, one strong scene develops. End and start must share a dark visual state for a clean loop. |
-| Hero poster | `site/public/media/hero-poster.avif` | frame from hero master | The last fully legible album-art frame before dissolution. |
-| Music-response proof | `site/public/media/conductor.webm` and `conductor.mp4` | `site/media-source/conductor-master.mkv` | 8 to 10 seconds from the clearest scene. Include two strong kicks, a snare passage, and audible highs. No transition. |
-| Render toggle | `site/public/media/toggle.webm` and `toggle.mp4` | `site/media-source/toggle-master.mkv` | 6 to 8 seconds. Same preset and musical phrase, toggle original to ASCII once and back once. |
-| Seamless transition | `site/public/media/transition.webm` and `transition.mp4` | `site/media-source/transition-master.mkv` | One complete topology-aware transition with two seconds of stable footage on both sides. |
-| Preset stills | `site/public/media/presets/01.avif` through `06.avif` | frames from clean masters | One compositionally distinct still from each currently qualified preset. Avoid similar center-weighted frames. |
-| Social crop | `site/public/media/social.mp4` | crop from hero master | 1920x1080, 8 to 12 seconds, readable without sound. |
-| Share image | `site/public/og.avif` | composed from hero poster | 1200x630, actual Omadrop output with a small `omadrop` wordmark and safe margins. |
+| Asset | Deployed path | Content |
+|---|---|---|
+| Desktop hero | `site/public/media/hero.mp4` | Silent 1280x720 Guns N' Roses cover, dissolve, and two-scene development |
+| Mobile hero | `site/public/media/hero-mobile.mp4` | Silent square crop of the same performance |
+| Hero poster | `site/public/media/hero-poster.avif` | Final hero composition, also used for reduced motion |
+| Focused performance | `site/public/media/variety.mp4` | Continuous Journey cover, dissolve, and three preset scenes with AAC audio |
+| Performance poster | `site/public/media/variety-poster.avif` | Journey handoff frame |
+| Share image | `site/public/og.png` | 1200x630 Omadrop social card |
 
 Record lossless masters first. Derive web assets afterward so compression can
 be retuned without repeating a performance. Capture the application directly,

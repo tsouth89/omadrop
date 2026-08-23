@@ -14,6 +14,7 @@ classic MilkDrop presets an unmistakable Omarchy finish.
 - Real MilkDrop preset execution through libprojectM
 - PipeWire capture from the active audio output
 - MPRIS album art with a held intro and ribbon dissolve
+- Color-aware ASCII cover sampling that preserves saturated artwork
 - Kick, snare, hat, bass, mid, and treble analysis
 - Scene-aware movement that deforms preset geometry
 - Smooth, music-aware preset transitions
@@ -95,6 +96,10 @@ cd site
 npm install
 npm run dev
 ```
+
+Production builds run with `npm run build`. Cloudflare Pages deploys the
+`site/dist` output from the `master` branch and serves it at
+[omadrop.com](https://omadrop.com).
 
 ## Presets and attribution
 
