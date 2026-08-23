@@ -247,11 +247,14 @@ void main() {
         float representativeMin = min(representative.r,
                                       min(representative.g, representative.b));
         float representativeChroma = representativeMax - representativeMin;
-        float luminanceScaleLimit = mix(1.02, 1.45,
-                                        smoothstep(0.06, 0.30, representativeChroma));
-        sourceColor = clamp(representative
-                            * min(luminanceScaleLimit, best / representativeLight),
-                            vec3(0.0), vec3(1.0));
+        // Keep the artwork's RGB ratios intact. The earlier large luminance
+        // lift clipped dominant channels first, turning strong cover colors
+        // pale while making neutral highlights take over the cell.
+        float luminanceLift = min(mix(1.04, 1.18,
+                                  smoothstep(0.06, 0.30, representativeChroma)),
+                                  best / representativeLight);
+        float unclippedLift = 0.98 / max(0.01, representativeMax);
+        sourceColor = representative * min(luminanceLift, unclippedLift);
     }
 
     const float threshold[8] = float[8](0.08, 0.58, 0.33, 0.83, 0.70, 0.20, 0.95, 0.45);
@@ -268,14 +271,19 @@ void main() {
                           - 0.06 * bassImpact - 0.025 * trebleLevel
                           - 0.045 * trebleImpact;
     if (level < activeThreshold) { color = vec4(0.0, 0.0, 0.0, 1.0); return; }
-    vec3 energized = mix(sourceColor, sourceColor * sourceColor * 1.12, 0.16 * bassImpact);
+    float coverColorLock = smoothstep(0.0, 0.85, coverMix);
+    vec3 energized = mix(sourceColor, sourceColor * sourceColor * 1.12,
+                         0.16 * bassImpact * (1.0 - coverColorLock));
     float grey = luminance(energized);
-    energized = mix(vec3(grey), energized, 1.0 + 0.08 * midLevel + 0.12 * midImpact);
+    energized = mix(vec3(grey), energized,
+                    1.0 + (0.08 * midLevel + 0.12 * midImpact)
+                        * (1.0 - coverColorLock));
     // The source preset owns luminance. Audio changes glyph weight, detail,
     // and chroma, but must never globally flash the frame toward white.
-    color = vec4(energized * glyphMask
-                 * (0.80 + level * 0.32 + 0.035 * bassLevel
-                    + 0.025 * trebleLevel) * materialExposure, 1.0);
+    float visualLightResponse = 0.80 + level * 0.32 + 0.035 * bassLevel
+                              + 0.025 * trebleLevel;
+    float outputScale = mix(visualLightResponse, 1.0, coverColorLock);
+    color = vec4(energized * glyphMask * outputScale * materialExposure, 1.0);
 }
 )GLSL";
 
@@ -654,8 +662,21 @@ int main(int argc, char** argv) {
     bool running = true;
     bool asciiEnabled = true;
     bool windowShown = false;
-    const bool disableArt = std::getenv("OMADROP_DISABLE_ART") != nullptr;
+    const std::string forcedCoverPath = std::getenv("OMADROP_COVER_PATH")
+        ? std::getenv("OMADROP_COVER_PATH") : "";
+    const bool disableArt = std::getenv("OMADROP_DISABLE_ART") != nullptr
+                         || !forcedCoverPath.empty();
     bool artLookupComplete = disableArt;
+    if (!forcedCoverPath.empty()
+        && loadPngTexture(forcedCoverPath, coverTexture, coverAspect)) {
+        currentArtPath = forcedCoverPath;
+        albumColor = loadPaletteColor(forcedCoverPath);
+        hasCover = true;
+        coverStartedAt = SDL_GetTicks64();
+        transitionWindowAt = coverStartedAt + 19000;
+        transitionDeadlineAt = coverStartedAt + 23000;
+        std::cerr << "cover: " << forcedCoverPath << " (forced)\n";
+    }
     const uint64_t automaticQuitAt = std::getenv("OMADROP_AUTO_QUIT_MS")
         ? SDL_GetTicks64() + static_cast<uint64_t>(std::max(0, std::atoi(std::getenv("OMADROP_AUTO_QUIT_MS"))))
         : 0;

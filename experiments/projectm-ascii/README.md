@@ -64,10 +64,11 @@ Press F11 to toggle fullscreen.
 Press Escape to exit. The process prints `audio: PipeWire` when nonzero sink
 samples arrive. `OMADROP_SYNTHETIC_AUDIO=1` forces a deterministic repeating
 kick, snare, and hat fixture. `OMADROP_DISABLE_ART=1` skips the cover sequence,
-and `OMADROP_AUTO_NEXT_MS` requests one preset transition after the given number
-of milliseconds. `bin/motion-capture` uses these controls to inspect the native
-SDL renderer without manual input. `OMADROP_REACTION_SCALE=0` disables the
-authored post-process movement for deterministic native-versus-authored A/Bs.
+`OMADROP_COVER_PATH` forces a local cover for visual comparison, and
+`OMADROP_AUTO_NEXT_MS` requests one preset transition after the given number of
+milliseconds. `bin/motion-capture` uses these controls to inspect the native SDL
+renderer without manual input. `OMADROP_REACTION_SCALE=0` disables the authored
+post-process movement for deterministic native-versus-authored A/Bs.
 
 Album art comes from MPRIS, holds for five seconds, then dissolves over five
 seconds in coordinated ribbons. Cover glyphs use peak luminance for dot
