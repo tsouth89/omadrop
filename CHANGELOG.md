@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 - 2026-08-23
+
+- Bundle the six curated presets and remove the classic projectM package dependency
+
 ## 0.1.0 - 2026-08-23
 
 First public release.

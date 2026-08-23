@@ -16,7 +16,7 @@ Build:
 Run:
 
 ```sh
-preset='/usr/share/projectM/presets/presets_stock/Rovastar - Fractopia (Fantic Dancing Lights Mix).milk'
+preset="presets/curated/Aderrasi - Contortion (Escher's Tunnel Mix).milk"
 ./experiments/projectm-ascii/projectm-ascii "$preset" /tmp/native.ppm /tmp/ascii.ppm
 ```
 
@@ -34,7 +34,7 @@ libprojectM, copies projectM's completed frame into a GPU texture, and applies
 the ASCII dot composite in an OpenGL shader:
 
 ```sh
-preset='/usr/share/projectM/presets/presets_bltc201/Aderrasi + Geiss - Airhandler (Kali Mix) - Painterly Kaleidoscope 2.milk'
+preset='presets/curated/Aderrasi + Geiss - Airhandler (Kali Mix) - Painterly Kaleidoscope 2.milk'
 ./experiments/projectm-ascii/projectm-ascii-live "$preset"
 ```
 

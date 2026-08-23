@@ -26,11 +26,11 @@ Omadrop is in active development. The current preset rotation is intentionally
 small while each scene is tuned for coherence, musical response, and ASCII
 readability.
 
-Current release: **0.1.0**
+Current release: **0.1.1**
 
 ## Requirements
 
-- libprojectM and the classic projectM preset collection
+- libprojectM
 - SDL2, GLEW, and OpenGL 3.3
 - PipeWire
 - FFTW
@@ -48,7 +48,7 @@ Run the environment check before building:
 ## Install on Omarchy
 
 ```bash
-git clone --branch v0.1.0 https://github.com/tsouth89/omadrop.git
+git clone --branch v0.1.1 https://github.com/tsouth89/omadrop.git
 cd omadrop
 ./install.sh
 ```
@@ -139,12 +139,14 @@ Production builds run with `npm run build`. Cloudflare Pages deploys the
 
 ## Presets and attribution
 
-Omadrop does not bundle the projectM preset library. Presets are loaded from the
-user's installed projectM collection and remain subject to their respective
-authors and licenses. projectM is a separate project and is not affiliated with
+Omadrop bundles six presets selected from the classic projectM collection.
+Their original filenames and author credits are preserved. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the complete list and
+rights notice. projectM is a separate project and is not affiliated with
 Omadrop.
 
 ## License
 
-Omadrop is released under the [MIT License](LICENSE). MilkDrop presets are not
-bundled and retain their respective authorship and licenses.
+Omadrop is released under the [MIT License](LICENSE). Bundled MilkDrop presets
+are excluded from that license and retain their respective authorship and
+rights.
