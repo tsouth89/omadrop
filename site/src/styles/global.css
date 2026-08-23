@@ -165,8 +165,8 @@ kbd { padding: 8px 10px; border: 1px solid var(--line); color: var(--paper); fon
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .hero__film { display: none; }
-  .hero { background: #000 url('/media/hero-poster.avif?v=e586285') center / cover no-repeat; }
+  .hero { background: #000 url('/media/hero-poster.avif?v=20260823b') center / cover no-repeat; }
   .proof__stage video { display: none; }
-  .proof__stage { background: #000 url('/media/variety-poster.avif?v=e586285') center / contain no-repeat; }
+  .proof__stage { background: #000 url('/media/variety-poster.avif?v=20260823b') center / contain no-repeat; }
   .button { transition: none; }
 }
