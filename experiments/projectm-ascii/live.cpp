@@ -182,6 +182,8 @@ void main() {
 
     vec2 dotOrigin = cell * cellSize + vec2(float(dx) * 6.0, float(dy) * 6.0);
     vec3 brightest = vec3(0.0);
+    vec3 coverColorSum = vec3(0.0);
+    float coverColorWeight = 0.0;
     float best = 0.0;
     for (int oy = 0; oy < 6; ++oy) {
         for (int ox = 0; ox < 6; ++ox) {
@@ -191,7 +193,34 @@ void main() {
             vec3 candidate = sceneSample(sampleUv);
             float level = luminance(candidate);
             if (level > best) { best = level; brightest = candidate; }
+            if (coverMix > 0.0) {
+                float candidateMax = max(candidate.r, max(candidate.g, candidate.b));
+                float candidateMin = min(candidate.r, min(candidate.g, candidate.b));
+                float chroma = candidateMax - candidateMin;
+                float weight = 0.01 + chroma * chroma * 10.0;
+                coverColorSum += candidate * weight;
+                coverColorWeight += weight;
+            }
         }
+    }
+
+    vec3 sourceColor = brightest;
+    if (coverMix > 0.0 && coverColorWeight > 0.0) {
+        // Peak luminance decides which braille dots exist, but a saturated
+        // cell average supplies their color. Neutral highlights can no longer
+        // erase adjacent reds, yellows, or blues in album artwork.
+        vec3 representative = coverColorSum / coverColorWeight;
+        float representativeLight = max(0.01, luminance(representative));
+        float representativeMax = max(representative.r,
+                                      max(representative.g, representative.b));
+        float representativeMin = min(representative.r,
+                                      min(representative.g, representative.b));
+        float representativeChroma = representativeMax - representativeMin;
+        float luminanceScaleLimit = mix(1.02, 1.45,
+                                        smoothstep(0.06, 0.30, representativeChroma));
+        sourceColor = clamp(representative
+                            * min(luminanceScaleLimit, best / representativeLight),
+                            vec3(0.0), vec3(1.0));
     }
 
     const float threshold[8] = float[8](0.08, 0.58, 0.33, 0.83, 0.70, 0.20, 0.95, 0.45);
@@ -207,7 +236,7 @@ void main() {
                           - 0.06 * bassImpact - 0.025 * trebleLevel
                           - 0.045 * trebleImpact;
     if (level < activeThreshold) { color = vec4(0.0, 0.0, 0.0, 1.0); return; }
-    vec3 energized = mix(brightest, brightest * brightest * 1.12, 0.16 * bassImpact);
+    vec3 energized = mix(sourceColor, sourceColor * sourceColor * 1.12, 0.16 * bassImpact);
     float grey = luminance(energized);
     energized = mix(vec3(grey), energized, 1.0 + 0.08 * midLevel + 0.12 * midImpact);
     // The source preset owns luminance. Audio changes glyph weight, detail,
