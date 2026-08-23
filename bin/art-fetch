@@ -7,7 +7,7 @@ set -euo pipefail
 
 url=${1:?usage: art-fetch <artUrl> [cachedir]}
 here=$(dirname "$(readlink -f "$0")")
-cachedir=${2:-$here/../cache}
+cachedir=${2:-${XDG_CACHE_HOME:-$HOME/.cache}/omadrop}
 mkdir -p "$cachedir"
 
 key=$(printf '%s' "$url" | sha256sum | cut -c1-16)

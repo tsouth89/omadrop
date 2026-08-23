@@ -145,6 +145,7 @@ h1 { font-size: clamp(58px, 9.5vw, 148px); }
 .close h2 { max-width: 1200px; font-size: clamp(48px, 7vw, 112px); }
 .shortcut { display: flex; gap: 10px; align-items: center; margin-top: 70px; color: var(--muted); font-size: 10px; }
 kbd { padding: 8px 10px; border: 1px solid var(--line); color: var(--paper); font: inherit; }
+.close .button { align-self: flex-start; margin-top: 34px; }
 .close__status { margin: 26px 0 0; color: var(--muted); font-size: 11px; }
 
 @media (max-width: 720px) {

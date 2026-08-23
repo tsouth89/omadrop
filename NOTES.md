@@ -410,8 +410,8 @@ mapped yet. Always wait:
 
 ## Distribution
 
-The source repository and landing page are public. The application is not yet
-packaged for end users. The likely distribution path is a PKGBUILD/AUR package
-or an Omarchy plugin that installs and launches the standalone native renderer.
-The renderer must remain out of the shell process so a heavy preset cannot
-stutter the desktop shell.
+Version 0.1.0 ships with a user-local Omarchy installer. It installs Arch
+dependencies through `omarchy pkg add`, builds the native renderer, and manages
+user-owned Hyprland shortcuts with backup and rollback validation. A future AUR
+package can build on this path. The renderer remains out of the shell process so
+a heavy preset cannot stutter the desktop shell.

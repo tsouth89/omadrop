@@ -1,7 +1,9 @@
 #!/bin/bash
 # Quick environment check for a fresh machine.
 echo "== Omadrop environment =="
-for c in magick curl pactl pw-record gdbus busctl pkg-config; do
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+echo "version     : $(<"$root/VERSION")"
+for c in magick curl pactl pw-record gdbus busctl jq pkg-config; do
   printf '%-12s %s\n' "$c" "$(command -v $c || echo MISSING)"
 done
 echo
@@ -12,7 +14,6 @@ echo "SDL2        : $(pkg-config --modversion sdl2 2>/dev/null || echo MISSING)"
 echo "GLEW        : $(pkg-config --modversion glew 2>/dev/null || echo MISSING)"
 echo "libpng      : $(pkg-config --modversion libpng 2>/dev/null || echo MISSING)"
 echo "presets     : $(find /usr/share/projectM/presets -type f -name '*.milk' 2>/dev/null | wc -l)"
-root=$(dirname "$(dirname "$(readlink -f "$0")")")
 live="$root/experiments/projectm-ascii/projectm-ascii-live"
 echo "renderer    : $( [[ -x $live ]] && echo built || echo 'NOT BUILT')"
 echo "album art   : $("$root/bin/mpris-art" 2>/dev/null || echo unavailable)"

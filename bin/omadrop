@@ -3,6 +3,24 @@ set -euo pipefail
 root=$(dirname "$(dirname "$(readlink -f "$0")")")
 runtime_dir=${XDG_RUNTIME_DIR:-/tmp}/omadrop
 
+case ${1:-} in
+  --version)
+    printf 'Omadrop %s\n' "$(<"$root/VERSION")"
+    exit 0
+    ;;
+  -h|--help)
+    cat <<'EOF'
+Usage: omadrop [--single|--all|--toggle-secondary|--version]
+
+  --single            Visualize on one display
+  --all               Visualize on every connected display (default)
+  --toggle-secondary  Hide or restore the secondary Omadrop display
+  --version            Print the installed version
+EOF
+    exit 0
+    ;;
+esac
+
 if [[ ${1:-} == --toggle-secondary ]]; then
   pid_file=$runtime_dir/display-1.pid
   state_file=$runtime_dir/display-1.state

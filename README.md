@@ -26,14 +26,18 @@ Omadrop is in active development. The current preset rotation is intentionally
 small while each scene is tuned for coherence, musical response, and ASCII
 readability.
 
+Current release: **0.1.0**
+
 ## Requirements
 
 - libprojectM and the classic projectM preset collection
 - SDL2, GLEW, and OpenGL 3.3
 - PipeWire
+- FFTW
 - libpng
 - ImageMagick
-- curl and GLib
+- curl, GLib, and jq
+- GCC and pkgconf when building from source
 
 Run the environment check before building:
 
@@ -41,11 +45,34 @@ Run the environment check before building:
 ./bin/omadrop-doctor
 ```
 
-## Build and run
+## Install on Omarchy
 
 ```bash
-./experiments/projectm-ascii/build.sh
-./bin/omadrop
+git clone --branch v0.1.0 https://github.com/tsouth89/omadrop.git
+cd omadrop
+./install.sh
+```
+
+The installer uses `omarchy pkg add` for missing Arch dependencies, builds the
+native renderer, installs it under `~/.local/share/omadrop`, and adds the
+Omadrop shortcuts to the user-owned Hyprland bindings file. It backs up the
+bindings and rolls them back if Hyprland reports a configuration error.
+
+Run `./install.sh` again to update an existing installation. To omit automatic
+package or shortcut setup, use `--no-deps` or `--no-bindings`.
+
+Uninstall with:
+
+```bash
+~/.local/share/omadrop/uninstall.sh
+```
+
+Audio synchronization settings and cached covers are preserved.
+
+## Run
+
+```bash
+omadrop
 ```
 
 Omadrop fills every connected monitor by default. Closing either window closes
@@ -61,8 +88,15 @@ N / P              next or previous preset
 F11                toggle fullscreen
 ```
 
-Use `./bin/omadrop --single` for one display or `./bin/omadrop --all` for every
-connected display.
+Use `omadrop --single` for one display or `omadrop --all` for every connected
+display.
+
+## Build from source
+
+```bash
+./experiments/projectm-ascii/build.sh
+./bin/omadrop
+```
 
 ## How it works
 
@@ -112,6 +146,5 @@ Omadrop.
 
 ## License
 
-No open-source license has been selected yet. The repository is public for
-development and evaluation, but no permission to redistribute or modify the
-Omadrop source is granted until a license is added.
+Omadrop is released under the [MIT License](LICENSE). MilkDrop presets are not
+bundled and retain their respective authorship and licenses.
