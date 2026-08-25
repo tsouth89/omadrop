@@ -1,0 +1,96 @@
+#!/bin/bash
+set -euo pipefail
+
+if (( $# < 2 )); then
+  echo "usage: preset-audit OUTPUT_DIR PRESET.milk [PRESET.milk ...]" >&2
+  exit 2
+fi
+
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+renderer="$root/experiments/projectm-ascii/projectm-ascii"
+output=$(readlink -m "$1")
+shift
+
+if [[ ! -x "$renderer" ]]; then
+  echo "preset-audit: build the projectM experiment first" >&2
+  exit 2
+fi
+if ! command -v magick >/dev/null; then
+  echo "preset-audit: ImageMagick is required for metrics and contact sheets" >&2
+  exit 2
+fi
+
+mkdir -p "$output/tiles"
+manifest="$output/audit.tsv"
+printf 'sha256\tpreset\tstatus\tactive\tmotion_native\tmotion_ascii\tretention\tcoarse_native\tcoarse_ascii\treason\n' > "$manifest"
+
+declare -A seen
+tiles=()
+for preset in "$@"; do
+  if [[ ! -r "$preset" ]]; then
+    printf '%s\t%s\terror\t\t\t\t\t\t\tunreadable\n' "" "$preset" >> "$manifest"
+    continue
+  fi
+  hash=$(sha256sum "$preset" | cut -d' ' -f1)
+  if [[ -n ${seen[$hash]:-} ]]; then
+    printf '%s\t%s\tduplicate\t\t\t\t\t\t\t%s\n' "$hash" "$preset" "${seen[$hash]}" >> "$manifest"
+    continue
+  fi
+  seen[$hash]=$preset
+
+  native="$output/$hash.native.ppm"
+  ascii="$output/$hash.ascii.ppm"
+  error="$output/$hash.stderr"
+  if ! metrics=$(timeout 20 "$renderer" "$preset" "$native" "$ascii" 2>"$error"); then
+    reason=$(tail -n 1 "$error" | tr '\t\n' ' ')
+    printf '%s\t%s\terror\t\t\t\t\t\t\t%s\n' "$hash" "$preset" "${reason:-render-failed}" >> "$manifest"
+    continue
+  fi
+
+  native_motion=""
+  ascii_motion=""
+  retention=""
+  coarse_native=""
+  coarse_ascii=""
+  for metric in $metrics; do
+    case "$metric" in
+      native=*) native_motion=${metric#native=} ;;
+      ascii=*) ascii_motion=${metric#ascii=} ;;
+      retention=*) retention=${metric#retention=} ;;
+      coarse_native=*) coarse_native=${metric#coarse_native=} ;;
+      coarse_ascii=*) coarse_ascii=${metric#coarse_ascii=} ;;
+    esac
+  done
+  active=$(magick "$ascii" -colorspace Gray -threshold 5% -format '%[fx:mean]' info:)
+  reason=$(awk -v active="$active" 'BEGIN {
+    if (active < 0.005) print "blank";
+    else if (active > 0.65) print "overfull";
+    else print "review";
+  }')
+  printf '%s\t%s\tok\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$hash" "$preset" "$active" "$native_motion" "$ascii_motion" "$retention" \
+    "$coarse_native" "$coarse_ascii" "$reason" >> "$manifest"
+
+  filename=$(basename "$preset")
+  tile="$output/tiles/$hash.png"
+  magick "$ascii" -resize '480x270!' \
+    \( "$native" -resize '144x81!' -bordercolor '#777' -border 1 \) \
+    -gravity northwest -geometry +8+8 -composite \
+    -background '#111' -gravity south -splice 0x58 \
+    -fill white -font Adwaita-Mono -pointsize 13 \
+    -annotate +0+31 "${filename:0:62}" \
+    -fill '#a8b0bd' -pointsize 12 \
+    -annotate +0+12 "active=$active  retention=$retention  $reason" "$tile"
+  tiles+=("$tile")
+  rm -f "$native" "$ascii" "$error"
+done
+
+if (( ${#tiles[@]} > 0 )); then
+  magick montage "${tiles[@]}" -tile 3x -geometry +8+8 -background '#080a0d' \
+    "$output/contact-sheet.png"
+fi
+
+echo "$manifest"
+if [[ -f "$output/contact-sheet.png" ]]; then
+  echo "$output/contact-sheet.png"
+fi

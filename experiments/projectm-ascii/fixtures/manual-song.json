@@ -1,0 +1,10 @@
+{
+  "duration": 100.0,
+  "sections": [
+    {"start": 0.0, "end": 20.0, "identity": "A", "label": "intro", "confidence": 1.0},
+    {"start": 20.0, "end": 40.0, "identity": "B", "label": "verse", "confidence": 1.0},
+    {"start": 40.0, "end": 60.0, "identity": "C", "label": "chorus", "confidence": 1.0},
+    {"start": 60.0, "end": 80.0, "identity": "B", "label": "verse", "confidence": 1.0},
+    {"start": 80.0, "end": 100.0, "identity": "C", "label": "chorus", "confidence": 1.0}
+  ]
+}

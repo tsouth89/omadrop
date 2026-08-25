@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "preset_adapters.h"
+#include "preset_profiles.h"
 
 namespace {
 constexpr int width = 960;
@@ -73,10 +74,10 @@ std::vector<uint8_t> coarseLuminance(const std::vector<uint8_t>& rgb) {
     return result;
 }
 
-std::vector<uint8_t> braillePass(const std::vector<uint8_t>& source) {
+std::vector<uint8_t> braillePass(const std::vector<uint8_t>& source, float exposure) {
     std::vector<uint8_t> result(width * height * 3, 0);
-    constexpr int cellW = 6;
-    constexpr int cellH = 12;
+    constexpr int cellW = 12;
+    constexpr int cellH = 24;
     constexpr float thresholds[8] = {0.08f, 0.58f, 0.33f, 0.83f,
                                       0.70f, 0.20f, 0.95f, 0.45f};
 
@@ -106,17 +107,24 @@ std::vector<uint8_t> braillePass(const std::vector<uint8_t>& source) {
                             }
                         }
                     }
-                    const float level = std::min(1.0f, std::sqrt(std::max(0.0f, maxLuminance)) * 1.25f);
+                    float level = std::min(1.0f, std::sqrt(std::max(0.0f, maxLuminance))
+                                                * 1.25f * std::sqrt(exposure));
+                    level = std::floor(level * 5.0f + 0.5f) / 5.0f;
                     if (level < thresholds[dy * 2 + dx]) continue;
 
-                    const int px = cx + (dx == 0 ? 1 : 4);
-                    const int py = cy + 1 + dy * 3;
-                    for (int oy = 0; oy < 2; ++oy) {
-                        for (int ox = 0; ox < 2; ++ox) {
+                    const int px = cx + (dx == 0 ? 1 : 7);
+                    const int py = cy + 1 + dy * 6;
+                    const float outputScale = (0.80f + level * 0.32f) * exposure;
+                    for (int oy = 0; oy < 4; ++oy) {
+                        for (int ox = 0; ox < 4; ++ox) {
+                            const float dotX = ox - 1.5f;
+                            const float dotY = oy - 1.5f;
+                            if (dotX * dotX + dotY * dotY > 4.5f) continue;
                             const size_t target = ((py + oy) * width + px + ox) * 3;
-                            result[target] = source[sample];
-                            result[target + 1] = source[sample + 1];
-                            result[target + 2] = source[sample + 2];
+                            for (int channel = 0; channel < 3; ++channel) {
+                                result[target + channel] = static_cast<uint8_t>(std::min(
+                                    255.0f, source[sample + channel] * outputScale));
+                            }
                         }
                     }
                 }
@@ -189,6 +197,8 @@ int main(int argc, char** argv) {
         applyOmadropAdapter(argv[1], preset);
     }
     projectm_load_preset_data(projectm, preset.c_str(), false);
+    const auto* profile = findProfileForPreset(argv[1]);
+    const float asciiExposure = profile ? profile->asciiExposure : 1.0f;
 
     const int samplesPerFrame = sampleRate / fps;
     std::vector<float> pcm(samplesPerFrame * 2);
@@ -243,7 +253,7 @@ int main(int argc, char** argv) {
         glFinish();
         glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
         const auto currentNative = flipRgb(rgba);
-        const auto currentAscii = braillePass(currentNative);
+        const auto currentAscii = braillePass(currentNative, asciiExposure);
         const auto currentNativeCoarse = coarseLuminance(currentNative);
         const auto currentAsciiCoarse = coarseLuminance(currentAscii);
         if (frame >= fps * 2 && !previousNative.empty()) {
@@ -274,7 +284,7 @@ int main(int argc, char** argv) {
 
     const auto native = flipRgb(rgba);
     writePpm(argv[2], native);
-    writePpm(argv[3], braillePass(native));
+    writePpm(argv[3], braillePass(native, asciiExposure));
     const double nativeHit = nativeHitMotion / std::max(1, hitFrames);
     const double nativeIdle = nativeIdleMotion / std::max(1, idleFrames);
     const double asciiHit = asciiHitMotion / std::max(1, hitFrames);

@@ -13,6 +13,7 @@ echo "libprojectM : $(pkg-config --modversion projectM-4 2>/dev/null || echo MIS
 echo "SDL2        : $(pkg-config --modversion sdl2 2>/dev/null || echo MISSING)"
 echo "GLEW        : $(pkg-config --modversion glew 2>/dev/null || echo MISSING)"
 echo "libpng      : $(pkg-config --modversion libpng 2>/dev/null || echo MISSING)"
+echo "json-c      : $(pkg-config --modversion json-c 2>/dev/null || echo MISSING)"
 echo "presets     : $(find "$root/presets/curated" -type f -name '*.milk' 2>/dev/null | wc -l) bundled"
 live="$root/experiments/projectm-ascii/projectm-ascii-live"
 echo "renderer    : $( [[ -x $live ]] && echo built || echo 'NOT BUILT')"

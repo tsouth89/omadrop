@@ -1,0 +1,71 @@
+#!/bin/bash
+set -euo pipefail
+here=$(dirname "$(readlink -f "$0")")
+fetch_art=1
+if [[ ${1:-} == --no-art ]]; then fetch_art=0; fi
+
+selected=
+selected_metadata=
+fallback=
+fallback_metadata=
+while read -r service _; do
+  [[ $service == org.mpris.MediaPlayer2.* ]] || continue
+  status=$(gdbus call --session --dest "$service" \
+    --object-path /org/mpris/MediaPlayer2 \
+    --method org.freedesktop.DBus.Properties.Get \
+    org.mpris.MediaPlayer2.Player PlaybackStatus 2>/dev/null || true)
+  metadata=$(gdbus call --session --dest "$service" \
+    --object-path /org/mpris/MediaPlayer2 \
+    --method org.freedesktop.DBus.Properties.Get \
+    org.mpris.MediaPlayer2.Player Metadata 2>/dev/null || true)
+  if [[ -z $fallback && $metadata == *"'xesam:title'"* ]]; then
+    fallback=$service
+    fallback_metadata=$metadata
+  fi
+  if [[ $status == *"'Playing'"* && $metadata == *"'xesam:title'"* ]]; then
+    selected=$service
+    selected_metadata=$metadata
+    break
+  fi
+done < <(busctl --user --list --no-legend 2>/dev/null)
+
+service=${selected:-$fallback}
+metadata=${selected_metadata:-$fallback_metadata}
+[[ -n $service && -n $metadata ]] || exit 0
+
+status=$(gdbus call --session --dest "$service" \
+  --object-path /org/mpris/MediaPlayer2 \
+  --method org.freedesktop.DBus.Properties.Get \
+  org.mpris.MediaPlayer2.Player PlaybackStatus 2>/dev/null || true)
+position=$(gdbus call --session --dest "$service" \
+  --object-path /org/mpris/MediaPlayer2 \
+  --method org.freedesktop.DBus.Properties.Get \
+  org.mpris.MediaPlayer2.Player Position 2>/dev/null || true)
+
+playback_status=$(sed -n "s/.*<'\([^']*\)'>.*/\1/p" <<<"$status")
+position_us=$(sed -nE 's/.*<[^>]*int64 ([0-9]+)>.*/\1/p' <<<"$position")
+track_id=$(sed -n "s/.*'mpris:trackid': <'\([^']*\)'.*/\1/p" <<<"$metadata")
+track_url=$(sed -n "s/.*'xesam:url': <'\([^']*\)'.*/\1/p" <<<"$metadata")
+title=$(sed -n "s/.*'xesam:title': <'\([^']*\)'.*/\1/p" <<<"$metadata")
+length_us=$(sed -nE "s/.*'mpris:length': <[^>]*uint64 ([0-9]+)>.*/\1/p" <<<"$metadata")
+[[ -n $length_us ]] || length_us=$(sed -nE "s/.*'mpris:length': <[^>]*int64 ([0-9]+)>.*/\1/p" <<<"$metadata")
+art_url=$(sed -n "s/.*'mpris:artUrl': <'\([^']*\)'.*/\1/p" <<<"$metadata")
+
+identity=${track_url:-${track_id:-$title}}
+[[ -n $identity ]] || exit 0
+position_us=${position_us:-0}
+length_us=${length_us:-0}
+art_path=
+if ((fetch_art)) && [[ -n $art_url ]]; then
+  art_path=$("$here/art-fetch" "$art_url" 2>/dev/null || true)
+fi
+
+jq -n -c \
+  --arg identity "$identity" \
+  --arg playback_status "${playback_status:-Stopped}" \
+  --arg art_path "$art_path" \
+  --argjson position_us "$position_us" \
+  --argjson duration_us "$length_us" \
+  '{identity: $identity, playback_status: $playback_status, art_path: $art_path,
+    position_seconds: ($position_us / 1000000),
+    duration_seconds: ($duration_us / 1000000)}'

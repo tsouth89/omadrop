@@ -1,4 +1,5 @@
 #include "audio_features.h"
+#include "musical_structure.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -10,11 +11,17 @@
 namespace {
 struct EventSummary {
     int count = 0;
+    int above055 = 0;
+    int above075 = 0;
+    int above100 = 0;
     float strongest = 0.0f;
 
     void add(bool detected, float impact) {
         if (!detected) return;
         ++count;
+        above055 += impact >= 0.55f;
+        above075 += impact >= 0.75f;
+        above100 += impact >= 1.00f;
         strongest = std::max(strongest, impact);
     }
 };
@@ -32,6 +39,7 @@ int main(int argc, char** argv) {
     }
 
     AudioFeatureBus bus;
+    MusicalStructureTracker structureTracker;
     std::vector<float> pcm(AudioFeatureBus::hopSize * 2);
     EventSummary kicks;
     EventSummary snares;
@@ -42,9 +50,32 @@ int main(int argc, char** argv) {
     int hatCandidates = 0;
     int relaxedSnareCandidates = 0;
     int relaxedHatCandidates = 0;
+    int phrases = 0;
+    int sections = 0;
     while (input.read(reinterpret_cast<char*>(pcm.data()),
                       static_cast<std::streamsize>(pcm.size() * sizeof(float)))) {
         latest = bus.processStereo(pcm.data(), AudioFeatureBus::hopSize);
+        const MusicalStructureState& structure = structureTracker.update(latest);
+        if (structure.barAnalyzed) {
+            const double eventSeconds = hops * AudioFeatureBus::hopSize
+                                      / static_cast<double>(AudioFeatureBus::sampleRate);
+            std::cout << "structure " << eventSeconds << " sec"
+                      << " bar=" << structure.barIndex
+                      << " novelty=" << structure.novelty
+                      << " threshold=" << structure.noveltyThreshold
+                      << (structure.clockLocked ? " locked" : " unlocked")
+                      << (structure.sectionCrossed ? " section"
+                          : structure.phraseCrossed ? " phrase" : " bar");
+            if (structure.sectionCrossed) {
+                std::cout << " motif=" << structure.motifIdentity
+                          << (structure.motifRecalled ? " recalled" : " new");
+            }
+            std::cout << "\n";
+        }
+        if (structure.phraseCrossed) {
+            ++phrases;
+            if (structure.sectionCrossed) ++sections;
+        } else if (structure.sectionCrossed) ++sections;
         kicks.add(latest.kick, latest.kickImpact);
         snares.add(latest.snare, latest.snareImpact);
         hats.add(latest.hat, latest.hatImpact);
@@ -70,7 +101,8 @@ int main(int argc, char** argv) {
     };
     std::cout << "audio replay " << seconds << " sec"
               << " | kick=" << kicks.count << " (" << rate(kicks) << "/min, "
-              << kicks.strongest << " max)"
+              << kicks.strongest << " max, accents " << kicks.above055 << "/"
+              << kicks.above075 << "/" << kicks.above100 << ")"
               << " snare=" << snares.count << " (" << rate(snares) << "/min, "
               << snares.strongest << " max, candidates " << snareCandidates
               << "/" << relaxedSnareCandidates << ")"
@@ -78,5 +110,7 @@ int main(int argc, char** argv) {
               << hats.strongest << " max, candidates " << hatCandidates
               << "/" << relaxedHatCandidates << ")"
               << " | bpm=" << latest.bpm
-              << " confidence=" << latest.beatConfidence << "\n";
+              << " confidence=" << latest.beatConfidence
+              << " phrases=" << phrases
+              << " sections=" << sections << "\n";
 }

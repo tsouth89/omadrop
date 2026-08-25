@@ -10,7 +10,9 @@ here=$(dirname "$(readlink -f "$0")")
 cachedir=${2:-${XDG_CACHE_HOME:-$HOME/.cache}/omadrop}
 mkdir -p "$cachedir"
 
-key=$(printf '%s' "$url" | sha256sum | cut -c1-16)
+# Include the preparation format in the key so upgrades never reuse artwork
+# produced by an older color or exposure pipeline.
+key=$(printf 'original-color-v2:%s' "$url" | sha256sum | cut -c1-16)
 out="$cachedir/art-$key.png"
 [[ -f $out ]] && { echo "$out"; exit 0; }
 
@@ -27,7 +29,7 @@ esac
 # Dominant colours, for tinting the abstract scenes. Sampling the cover
 # directly drags its imagery into every scene; a palette carries the record's
 # colour with none of its structure.
-magick "$out" -modulate 100,190,100 -colors 5 -unique-colors -depth 8 txt:- 2>/dev/null \
+magick "$out" -colors 5 -unique-colors -depth 8 txt:- 2>/dev/null \
   | grep -oE '#[0-9A-Fa-f]{6}' | head -5 > "$out.pal" || true
 
 echo "$out"

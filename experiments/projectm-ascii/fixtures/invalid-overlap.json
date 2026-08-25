@@ -1,0 +1,7 @@
+{
+  "duration": 30.0,
+  "sections": [
+    {"start": 0.0, "end": 20.0, "identity": "A"},
+    {"start": 10.0, "end": 30.0, "identity": "B"}
+  ]
+}

@@ -36,7 +36,7 @@ done
 
 dependencies=(
   gcc pkgconf libprojectm sdl2-compat glew libpng fftw
-  pipewire-audio libpulse imagemagick curl glib2 jq
+  json-c pipewire-audio libpulse imagemagick curl glib2 jq
 )
 if ((install_dependencies)); then
   if command -v omarchy >/dev/null; then
@@ -54,6 +54,7 @@ fi
 install -Dm755 "$root/bin/omadrop" "$install_root/bin/omadrop"
 install -Dm755 "$root/bin/omadrop-doctor" "$install_root/bin/omadrop-doctor"
 install -Dm755 "$root/bin/mpris-art" "$install_root/bin/mpris-art"
+install -Dm755 "$root/bin/mpris-state" "$install_root/bin/mpris-state"
 install -Dm755 "$root/bin/art-fetch" "$install_root/bin/art-fetch"
 install -Dm755 "$root/bin/art-prep" "$install_root/bin/art-prep"
 install -Dm755 "$root/experiments/projectm-ascii/projectm-ascii-live" \
@@ -61,6 +62,8 @@ install -Dm755 "$root/experiments/projectm-ascii/projectm-ascii-live" \
 install -Dm755 "$root/experiments/projectm-ascii/run-curated.sh" \
   "$install_root/experiments/projectm-ascii/run-curated.sh"
 install -d "$install_root/presets/curated"
+rm -f "$install_root/presets/curated/A New Definition for Milk - AdamFX - Laser Show in a Crystalstorm  ft Orb n Martin Inside the Forge of Isengard.milk"
+rm -f "$install_root/presets/curated/shifter - lattice (eclipse) Phat + EoS more color mix_v2.milk"
 install -m644 "$root"/presets/curated/*.milk "$install_root/presets/curated/"
 install -Dm755 "$root/uninstall.sh" "$install_root/uninstall.sh"
 install -Dm644 "$root/README.md" "$install_root/README.md"
@@ -108,6 +111,7 @@ hl.unbind("SUPER + SHIFT + V")
 hl.unbind("SUPER + ALT + V")
 o.bind("SUPER + SHIFT + V", "Omadrop", "$escaped_command/omadrop")
 o.bind("SUPER + ALT + V", "Toggle Omadrop secondary display", "$escaped_command/omadrop --toggle-secondary")
+o.window("projectm-ascii-live", { idle_inhibit = "always" })
 -- omadrop:bindings:end
 EOF
   chmod --reference="$bindings" "$temporary"

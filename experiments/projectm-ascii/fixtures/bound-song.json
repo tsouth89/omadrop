@@ -1,0 +1,7 @@
+{
+  "duration": 10.0,
+  "track": {"identity": "fixture:bound-song"},
+  "sections": [
+    {"start": 0.0, "end": 10.0, "identity": "A", "label": "test"}
+  ]
+}

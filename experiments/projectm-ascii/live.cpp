@@ -16,6 +16,7 @@
 #include <fstream>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <regex>
 #include <random>
 #include <sstream>
@@ -28,8 +29,14 @@
 
 #include "audio_features.h"
 #include "audio_queue.h"
+#include "mpris_state.h"
+#include "musical_structure.h"
+#include "paired_display.h"
 #include "preset_adapters.h"
 #include "preset_profiles.h"
+#include "preset_selector.h"
+#include "structure_timeline.h"
+#include "visual_motifs.h"
 
 namespace {
 constexpr int width = 1280;
@@ -84,7 +91,10 @@ vec2 reactedUv(vec2 sampleUv, int mode, vec3 gain) {
     vec2 p = sampleUv - 0.5;
     float radius = max(0.001, length(p));
     float angle = atan(p.y, p.x);
-    float kick = bassImpact * gain.x;
+    // Quiet low-end movement stays restrained. A genuinely hard transient
+    // crosses into a stronger deformation of the preset's own geometry.
+    float kickAccent = smoothstep(0.52, 0.82, bassImpact);
+    float kick = min(2.10, (1.10 * bassImpact + 0.75 * kickAccent) * gain.x);
     float snare = midImpact * gain.y;
     float hat = trebleImpact * gain.z;
     vec2 movement = vec2(0.0);
@@ -204,17 +214,35 @@ void main() {
     // Keep transients bounded. Large glyph growth turns every lit cell into a
     // white screen on bright presets and destroys the underlying composition.
     float glyphDistance = length(local - center);
-    float glyphRadius = 1.90 + 0.55 * bassImpact + 0.09 * midImpact;
+    float kickAccent = smoothstep(0.52, 0.82, bassImpact);
+    float coverColorLock = smoothstep(0.0, 0.85, coverMix);
+    float visualReaction = 1.0 - coverColorLock;
+    // Album artwork needs more than a binary dot mask to survive difficult
+    // photography. A dim, color-faithful underlay retains faces, typography,
+    // and fine texture while the braille field remains the dominant material.
+    // It disappears early in the cover dissolve, so presets stay pure ASCII.
+    float underlayMix = smoothstep(0.62, 0.96, coverMix);
+    vec3 underlaySource = sceneSample(uv);
+    float underlayLight = luminance(underlaySource);
+    float underlayTarget = pow(clamp(underlayLight, 0.0, 1.0), 0.88);
+    float underlayMaximum = max(underlaySource.r,
+                                max(underlaySource.g, underlaySource.b));
+    float underlayLift = min(underlayTarget / max(0.01, underlayLight),
+                             0.98 / max(0.01, underlayMaximum));
+    vec3 coverUnderlay = underlaySource * underlayLift * 0.38 * underlayMix;
+    float glyphRadius = min(3.05, 1.90 + visualReaction
+                          * (0.52 * bassImpact + 0.70 * kickAccent
+                             + 0.09 * midImpact));
     float glyphMask = 1.0 - smoothstep(glyphRadius - 0.48, glyphRadius + 0.48,
                                       glyphDistance);
     if (glyphMask <= 0.01) {
-        color = vec4(0.0, 0.0, 0.0, 1.0); return;
+        color = vec4(coverUnderlay, 1.0); return;
     }
 
     vec2 dotOrigin = cell * cellSize + vec2(float(dx) * 6.0, float(dy) * 6.0);
     vec3 brightest = vec3(0.0);
     vec3 coverColorSum = vec3(0.0);
-    float coverColorWeight = 0.0;
+    float coverLightSum = 0.0;
     float best = 0.0;
     for (int oy = 0; oy < 6; ++oy) {
         for (int ox = 0; ox < 6; ++ox) {
@@ -225,53 +253,47 @@ void main() {
             float level = luminance(candidate);
             if (level > best) { best = level; brightest = candidate; }
             if (coverMix > 0.0) {
-                float candidateMax = max(candidate.r, max(candidate.g, candidate.b));
-                float candidateMin = min(candidate.r, min(candidate.g, candidate.b));
-                float chroma = candidateMax - candidateMin;
-                float weight = 0.01 + chroma * chroma * 10.0;
-                coverColorSum += candidate * weight;
-                coverColorWeight += weight;
+                coverColorSum += candidate;
+                coverLightSum += level;
             }
         }
     }
 
     vec3 sourceColor = brightest;
-    if (coverMix > 0.0 && coverColorWeight > 0.0) {
-        // Peak luminance decides which braille dots exist, but a saturated
-        // cell average supplies their color. Neutral highlights can no longer
-        // erase adjacent reds, yellows, or blues in album artwork.
-        vec3 representative = coverColorSum / coverColorWeight;
-        float representativeLight = max(0.01, luminance(representative));
-        float representativeMax = max(representative.r,
-                                      max(representative.g, representative.b));
-        float representativeMin = min(representative.r,
-                                      min(representative.g, representative.b));
-        float representativeChroma = representativeMax - representativeMin;
-        // Keep the artwork's RGB ratios intact. The earlier large luminance
-        // lift clipped dominant channels first, turning strong cover colors
-        // pale while making neutral highlights take over the cell.
-        float luminanceLift = min(mix(1.04, 1.18,
-                                  smoothstep(0.06, 0.30, representativeChroma)),
-                                  best / representativeLight);
-        float unclippedLift = 0.98 / max(0.01, representativeMax);
-        sourceColor = representative * min(luminanceLift, unclippedLift);
+    float coverLevel = best;
+    if (coverMix > 0.0) {
+        // A cell average retains the artwork's real RGB balance and local
+        // shading. Brightest-sample pooling turned photographs into flat white
+        // masks whenever a small neutral highlight crossed a cell.
+        vec3 coverAverage = coverColorSum / 36.0;
+        float coverAverageLight = coverLightSum / 36.0;
+        float targetLight = pow(clamp(coverAverageLight, 0.0, 1.0), 0.82);
+        float coverMaximum = max(coverAverage.r,
+                                 max(coverAverage.g, coverAverage.b));
+        float lift = min(targetLight / max(0.01, coverAverageLight),
+                         0.98 / max(0.01, coverMaximum));
+        sourceColor = mix(brightest, coverAverage * lift, coverColorLock);
+        // Keep one dot in reserve even for pure white. The ordered braille
+        // texture remains visible instead of becoming a solid white field.
+        coverLevel = min(0.92, targetLight * 0.96);
     }
 
     const float threshold[8] = float[8](0.08, 0.58, 0.33, 0.83, 0.70, 0.20, 0.95, 0.45);
     float materialExposure = mix(asciiExposure, 1.0, coverMix);
-    float level = min(1.0, sqrt(max(best, 0.0)) * 1.25 * sqrt(materialExposure));
-    level = floor(level * 5.0 + 0.5) / 5.0;
+    float presetLevel = min(1.0, sqrt(max(best, 0.0)) * 1.25
+                                 * sqrt(materialExposure));
+    presetLevel = floor(presetLevel * 5.0 + 0.5) / 5.0;
+    float level = mix(presetLevel, coverLevel, coverColorLock);
     // Bass briefly reveals more of the preset's own dim structure. This makes
     // the active subject feel heavier without adding a ring or moving the
     // camera independently of the composition.
     // Treble exposes the smallest source details while mids enrich the color
     // already present in the preset. Each band changes a different material
     // property, so the result reads as music rather than one global pulse.
-    float activeThreshold = threshold[dy * 2 + dx]
-                          - 0.06 * bassImpact - 0.025 * trebleLevel
-                          - 0.045 * trebleImpact;
-    if (level < activeThreshold) { color = vec4(0.0, 0.0, 0.0, 1.0); return; }
-    float coverColorLock = smoothstep(0.0, 0.85, coverMix);
+    float activeThreshold = threshold[dy * 2 + dx] - visualReaction
+                          * (0.055 * bassImpact + 0.060 * kickAccent
+                             + 0.025 * trebleLevel + 0.045 * trebleImpact);
+    if (level < activeThreshold) { color = vec4(coverUnderlay, 1.0); return; }
     vec3 energized = mix(sourceColor, sourceColor * sourceColor * 1.12,
                          0.16 * bassImpact * (1.0 - coverColorLock));
     float grey = luminance(energized);
@@ -283,7 +305,9 @@ void main() {
     float visualLightResponse = 0.80 + level * 0.32 + 0.035 * bassLevel
                               + 0.025 * trebleLevel;
     float outputScale = mix(visualLightResponse, 1.0, coverColorLock);
-    color = vec4(energized * glyphMask * outputScale * materialExposure, 1.0);
+    vec3 dotColor = energized * outputScale * materialExposure;
+    float dotOpacity = mix(1.0, 0.78, coverColorLock);
+    color = vec4(mix(coverUnderlay, dotColor, glyphMask * dotOpacity), 1.0);
 }
 )GLSL";
 
@@ -426,9 +450,25 @@ int main(int argc, char** argv) {
         std::cerr << "usage: projectm-ascii-live PRESET.milk [PRESET.milk ...]\n";
         return 2;
     }
+    std::optional<StructureTimeline> timeline;
+    if (const char* timelinePath = std::getenv("OMADROP_TIMELINE_PATH")) {
+        StructureTimeline loaded;
+        std::string error;
+        if (!loaded.load(timelinePath, error)) {
+            std::cerr << "timeline: " << error << "\n";
+            return 2;
+        }
+        std::cerr << "timeline: " << timelinePath << " ("
+                  << loaded.sections().size() << " sections)\n";
+        timeline = std::move(loaded);
+    }
     signal(SIGTERM, requestStop);
     signal(SIGINT, requestStop);
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) return 1;
+    SDL_SetHint(SDL_HINT_SCREENSAVER_INHIBIT_ACTIVITY_NAME, "Visualizing music");
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        std::cerr << "SDL init failed: " << SDL_GetError() << "\n";
+        return 1;
+    }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -446,8 +486,15 @@ int main(int argc, char** argv) {
     SDL_Window* window = SDL_CreateWindow("Omadrop",
         windowPosition, windowPosition, width, height,
         windowFlags);
-    if (!window) return 1;
+    if (!window) {
+        std::cerr << "window creation failed: " << SDL_GetError() << "\n";
+        return 1;
+    }
     SDL_GLContext context = SDL_GL_CreateContext(window);
+    if (!context) {
+        std::cerr << "OpenGL context failed: " << SDL_GetError() << "\n";
+        return 1;
+    }
     SDL_GL_SetSwapInterval(1);
     glewExperimental = GL_TRUE;
     if (glewInit() != GLEW_OK) return 1;
@@ -488,51 +535,53 @@ int main(int argc, char** argv) {
         projectm_set_texture_search_paths(engine, texturePaths, 2);
     }
     std::vector<std::string> presets(argv + 1, argv + argc);
+    for (const auto& preset : presets) {
+        if (!findProfileForPreset(preset)) {
+            std::cerr << "unprofiled preset: " << presetBasename(preset) << "\n";
+            return 2;
+        }
+    }
     const unsigned int randomSeed = std::getenv("OMADROP_RANDOM_SEED")
         ? static_cast<unsigned int>(std::strtoul(std::getenv("OMADROP_RANDOM_SEED"), nullptr, 10))
         : std::random_device{}();
     std::mt19937 randomEngine(randomSeed);
+    const std::filesystem::path pairedStatePath = std::getenv("OMADROP_PAIR_STATE")
+        ? std::getenv("OMADROP_PAIR_STATE") : "";
+    const std::string pairedRole = std::getenv("OMADROP_PAIR_ROLE")
+        ? std::getenv("OMADROP_PAIR_ROLE") : "";
+    const bool pairedLeader = !pairedStatePath.empty() && pairedRole == "leader";
+    const bool pairedFollower = !pairedStatePath.empty() && pairedRole == "follower";
+    const std::filesystem::path pairedRequestPath = pairedStatePath.empty()
+        ? std::filesystem::path{}
+        : std::filesystem::path(pairedStatePath.string() + ".request");
+    std::uint64_t pairedSerial = 0;
+    PairedDisplayFollower pairedDisplayFollower;
+    auto publishPairedState = [&](std::size_t index, std::uint64_t duration,
+                                  int mode, bool hardSync) {
+        if (!pairedLeader) return;
+        const std::filesystem::path temporary = pairedStatePath.string()
+            + "." + std::to_string(getpid()) + ".tmp";
+        std::ofstream output(temporary, std::ios::trunc);
+        output << encodePairedDisplayState({
+            .serial = ++pairedSerial,
+            .presetIndex = index,
+            .durationMs = duration,
+            .transitionMode = mode,
+            .hardSync = hardSync,
+        });
+        output.close();
+        std::error_code error;
+        std::filesystem::rename(temporary, pairedStatePath, error);
+        if (error) std::filesystem::remove(temporary, error);
+    };
     std::uniform_int_distribution<std::size_t> openingPreset(0, presets.size() - 1);
     std::size_t presetIndex = std::getenv("OMADROP_START_PRESET")
         ? static_cast<std::size_t>(std::max(0, std::atoi(std::getenv("OMADROP_START_PRESET")))) % presets.size()
         : openingPreset(randomEngine);
     std::deque<std::size_t> recentPresets{presetIndex};
-    auto chooseAutomaticPreset = [&](PresetEnergy targetEnergy) {
-        struct Candidate { std::size_t index; float score; };
-        std::vector<Candidate> candidates;
-        auto recentlyUsed = [&](std::size_t index) {
-            return std::find(recentPresets.begin(), recentPresets.end(), index) != recentPresets.end();
-        };
-        const PresetProfile& current = profileForPreset(presets[presetIndex]);
-        for (std::size_t i = 0; i < presets.size(); ++i) {
-            if (i == presetIndex || recentlyUsed(i)) continue;
-            const PresetProfile& candidate = profileForPreset(presets[i]);
-            const int energyDistance = std::abs(static_cast<int>(candidate.energy)
-                                              - static_cast<int>(targetEnergy));
-            float score = energyDistance == 0 ? 4.0f : energyDistance == 1 ? 1.0f : -4.0f;
-            score += topologyFamily(current.topology) == topologyFamily(candidate.topology)
-                ? 3.0f : -2.0f;
-            score += directionsCompatible(current.direction, candidate.direction) ? 2.0f : -1.0f;
-            score -= std::abs(current.asciiDensity - candidate.asciiDensity) * 5.0f;
-            std::uniform_real_distribution<float> variation(-0.75f, 0.75f);
-            candidates.push_back({i, score + variation(randomEngine)});
-        }
-        if (candidates.empty()) {
-            for (std::size_t i = 0; i < presets.size(); ++i) {
-                if (i != presetIndex && !recentlyUsed(i)) candidates.push_back({i, 0.0f});
-            }
-        }
-        if (candidates.empty()) {
-            for (std::size_t i = 0; i < presets.size(); ++i) {
-                if (i != presetIndex) candidates.push_back({i, 0.0f});
-            }
-        }
-        std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
-            return a.score > b.score;
-        });
-        const std::size_t finalistCount = std::min<std::size_t>(3, candidates.size());
-        std::uniform_int_distribution<std::size_t> pick(0, finalistCount - 1);
-        return candidates[pick(randomEngine)].index;
+    auto chooseAutomaticPreset = [&](PresetEnergy targetEnergy, int preferredFamily = -1) {
+        return choosePresetVariant(presets, presetIndex, recentPresets, targetEnergy,
+                                   preferredFamily, randomEngine);
     };
     auto energyForTrack = [](float energy) {
         if (energy < 0.90f) return PresetEnergy::Calm;
@@ -545,8 +594,15 @@ int main(int argc, char** argv) {
     uint64_t presetTransitionDuration = 6500;
     int transitionMode = 3;
     std::size_t transitionOutgoingPresetIndex = presetIndex;
+    TimelineDirector timelineDirector;
+    VisualMotifMemory visualMotifs;
+    std::optional<std::size_t> pendingTimelinePreset;
     if (!loadPresetAtVisualTempo(engines[activeEngine], presets[presetIndex], false)) return 1;
     std::cerr << "preset: " << presets[presetIndex] << "\n";
+    publishPairedState(presetIndex, 0, 0, true);
+    if (pairedLeader || pairedFollower) {
+        std::cerr << "paired display: " << pairedRole << "\n";
+    }
     uint64_t transitionWindowAt = SDL_GetTicks64() + 9000;
     uint64_t transitionDeadlineAt = SDL_GetTicks64() + 13000;
 
@@ -615,6 +671,8 @@ int main(int argc, char** argv) {
     uint64_t previousFrameAt = SDL_GetTicks64();
     AudioFeatureBus featureBus;
     AudioFeatures audioFeatures;
+    MusicalStructureTracker structureTracker;
+    bool structureClockLocked = false;
     float bassImpact = 0.0f;
     float midImpact = 0.0f;
     float trebleImpact = 0.0f;
@@ -629,14 +687,28 @@ int main(int argc, char** argv) {
     bool hasCover = false;
     std::string currentArtPath;
     uint64_t coverStartedAt = 0;
-    uint64_t nextArtPollAt = 0;
-    const std::filesystem::path artHelper = std::filesystem::canonical(argv[0]).parent_path()
-        / ".." / ".." / "bin" / "mpris-art";
-    pid_t artHelperPid = -1;
-    int artHelperFd = -1;
-    std::string artHelperOutput;
+    uint64_t nextMprisPollAt = 0;
+    const std::filesystem::path mprisHelper = std::filesystem::canonical(argv[0]).parent_path()
+        / ".." / ".." / "bin" / "mpris-state";
+    pid_t mprisHelperPid = -1;
+    int mprisHelperFd = -1;
+    std::string mprisHelperOutput;
+    PlaybackClock playbackClock;
+    bool timelineMismatchReported = false;
+    uint64_t timelineClockStartedAt = SDL_GetTicks64();
+    double forcedTimelinePosition = -1.0;
+    if (const char* position = std::getenv("OMADROP_TIMELINE_POSITION")) {
+        char* end = nullptr;
+        const double parsed = std::strtod(position, &end);
+        if (end != position && *end == '\0' && std::isfinite(parsed) && parsed >= 0.0) {
+            forcedTimelinePosition = parsed;
+        } else {
+            std::cerr << "timeline: OMADROP_TIMELINE_POSITION must be a non-negative number\n";
+            return 2;
+        }
+    }
 
-    auto startArtPoll = [&]() {
+    auto startMprisPoll = [&](bool skipArt) {
         int pipeFds[2];
         if (pipe2(pipeFds, O_CLOEXEC | O_NONBLOCK) != 0) return;
         const pid_t pid = fork();
@@ -646,7 +718,12 @@ int main(int argc, char** argv) {
             if (nullFd >= 0) dup2(nullFd, STDERR_FILENO);
             close(pipeFds[0]);
             close(pipeFds[1]);
-            execl(artHelper.c_str(), artHelper.c_str(), static_cast<char*>(nullptr));
+            if (skipArt) {
+                execl(mprisHelper.c_str(), mprisHelper.c_str(), "--no-art",
+                      static_cast<char*>(nullptr));
+            } else {
+                execl(mprisHelper.c_str(), mprisHelper.c_str(), static_cast<char*>(nullptr));
+            }
             _exit(127);
         }
         close(pipeFds[1]);
@@ -654,9 +731,9 @@ int main(int argc, char** argv) {
             close(pipeFds[0]);
             return;
         }
-        artHelperPid = pid;
-        artHelperFd = pipeFds[0];
-        artHelperOutput.clear();
+        mprisHelperPid = pid;
+        mprisHelperFd = pipeFds[0];
+        mprisHelperOutput.clear();
     };
 
     bool running = true;
@@ -690,6 +767,11 @@ int main(int argc, char** argv) {
         bool skipPreset = false;
         bool previousPreset = false;
         bool bassHitThisFrame = false;
+        bool phraseBoundaryThisFrame = false;
+        bool sectionBoundaryThisFrame = false;
+        float structureNovelty = 0.0f;
+        int structureMotifIdentity = -1;
+        bool structureMotifRecalled = false;
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT ||
@@ -715,48 +797,94 @@ int main(int argc, char** argv) {
                 std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
             }
         }
+        if (pairedFollower && (skipPreset || previousPreset)) {
+            const std::filesystem::path temporary = pairedRequestPath.string()
+                + "." + std::to_string(getpid()) + ".tmp";
+            std::ofstream output(temporary, std::ios::trunc);
+            output << (previousPreset ? "previous\n" : "next\n");
+            output.close();
+            std::error_code error;
+            std::filesystem::rename(temporary, pairedRequestPath, error);
+            if (error) std::filesystem::remove(temporary, error);
+            skipPreset = false;
+            previousPreset = false;
+        }
+        if (pairedLeader) {
+            std::ifstream requestInput(pairedRequestPath);
+            std::string request;
+            if (requestInput >> request) {
+                skipPreset = request == "next";
+                previousPreset = request == "previous";
+                std::error_code error;
+                std::filesystem::remove(pairedRequestPath, error);
+            }
+        }
         const uint64_t now = SDL_GetTicks64();
         if (automaticQuitAt > 0 && now >= automaticQuitAt) running = false;
         if (automaticNextAt > 0 && now >= automaticNextAt) {
             skipPreset = true;
             automaticNextAt = 0;
         }
-        if (!disableArt && now >= nextArtPollAt && artHelperPid < 0) startArtPoll();
-        if (artHelperPid > 0) {
-            std::array<char, 1024> artBuffer{};
-            ssize_t artBytes = 0;
-            while ((artBytes = read(artHelperFd, artBuffer.data(), artBuffer.size())) > 0) {
-                artHelperOutput.append(artBuffer.data(), static_cast<std::size_t>(artBytes));
+        bool seekedThisFrame = false;
+        if (now >= nextMprisPollAt && mprisHelperPid < 0) startMprisPoll(disableArt);
+        if (mprisHelperPid > 0) {
+            std::array<char, 2048> stateBuffer{};
+            ssize_t stateBytes = 0;
+            while ((stateBytes = read(mprisHelperFd, stateBuffer.data(), stateBuffer.size())) > 0) {
+                mprisHelperOutput.append(stateBuffer.data(), static_cast<std::size_t>(stateBytes));
             }
-            int artStatus = 0;
-            if (waitpid(artHelperPid, &artStatus, WNOHANG) == artHelperPid) {
-                close(artHelperFd);
-                artHelperFd = -1;
-                artHelperPid = -1;
+            int helperStatus = 0;
+            if (waitpid(mprisHelperPid, &helperStatus, WNOHANG) == mprisHelperPid) {
+                close(mprisHelperFd);
+                mprisHelperFd = -1;
+                mprisHelperPid = -1;
                 artLookupComplete = true;
-                nextArtPollAt = now + 1000;
-                while (!artHelperOutput.empty()
-                       && (artHelperOutput.back() == '\n' || artHelperOutput.back() == '\r')) {
-                    artHelperOutput.pop_back();
+                nextMprisPollAt = now + (timeline ? 500 : 1000);
+                while (!mprisHelperOutput.empty()
+                       && (mprisHelperOutput.back() == '\n' || mprisHelperOutput.back() == '\r')) {
+                    mprisHelperOutput.pop_back();
                 }
-                const std::string artPath = artHelperOutput;
-                if (!artPath.empty() && artPath != currentArtPath
-                    && loadPngTexture(artPath, coverTexture, coverAspect)) {
-                const bool trackChanged = hasCover;
-                currentArtPath = artPath;
-                albumColor = loadPaletteColor(artPath);
-                hasCover = true;
-                coverStartedAt = now;
-                if (trackChanged) presetIndex = chooseAutomaticPreset(PresetEnergy::Medium);
-                recentPresets.clear();
-                recentPresets.push_back(presetIndex);
-                presetTransitionActive = false;
-                loadPresetAtVisualTempo(engines[activeEngine], presets[presetIndex], false);
-                // Let the first preset breathe after the ten-second cover
-                // sequence, then enter the same shorter scene cadence.
-                transitionWindowAt = now + 19000;
-                transitionDeadlineAt = now + 23000;
-                std::cerr << "cover: " << artPath << "\n";
+                if (!mprisHelperOutput.empty()) {
+                    std::string error;
+                    const auto state = parseMprisState(mprisHelperOutput, error);
+                    if (!state) {
+                        std::cerr << "mpris: " << error << "\n";
+                    } else {
+                        const PlaybackObservation observation
+                            = playbackClock.observe(*state, now / 1000.0);
+                        seekedThisFrame = observation.seeked;
+                        if (observation.first || observation.trackChanged) {
+                            timelineDirector.reset();
+                            featureBus.resetClock();
+                            structureTracker.reset();
+                            visualMotifs.reset();
+                            structureClockLocked = false;
+                            pendingTimelinePreset.reset();
+                            timelineClockStartedAt = now;
+                            timelineMismatchReported = false;
+                        }
+                        if (observation.trackChanged && !pairedFollower) {
+                            presetIndex = chooseAutomaticPreset(PresetEnergy::Medium);
+                            recentPresets.clear();
+                            recentPresets.push_back(presetIndex);
+                            presetTransitionActive = false;
+                            loadPresetAtVisualTempo(
+                                engines[activeEngine], presets[presetIndex], false);
+                            transitionWindowAt = now + 19000;
+                            transitionDeadlineAt = now + 23000;
+                            if (hasCover) coverStartedAt = now;
+                            publishPairedState(presetIndex, 0, 0, true);
+                            std::cerr << "track: " << state->identity << "\n";
+                        }
+                        if (!state->artPath.empty() && state->artPath != currentArtPath
+                            && loadPngTexture(state->artPath, coverTexture, coverAspect)) {
+                            currentArtPath = state->artPath;
+                            albumColor = loadPaletteColor(state->artPath);
+                            hasCover = true;
+                            coverStartedAt = now;
+                            std::cerr << "cover: " << state->artPath << "\n";
+                        }
+                    }
                 }
             }
         }
@@ -827,6 +955,23 @@ int main(int argc, char** argv) {
                 }
             }
             audioFeatures = featureBus.processStereo(pcm.data(), analysisHopFrames);
+            const MusicalStructureState& structure = structureTracker.update(audioFeatures);
+            structureClockLocked = structure.clockLocked;
+            phraseBoundaryThisFrame = phraseBoundaryThisFrame || structure.phraseCrossed;
+            sectionBoundaryThisFrame = sectionBoundaryThisFrame || structure.sectionCrossed;
+            if (structure.phraseCrossed || structure.sectionCrossed) {
+                structureNovelty = structure.novelty;
+                if (structure.sectionCrossed) {
+                    structureMotifIdentity = structure.motifIdentity;
+                    structureMotifRecalled = structure.motifRecalled;
+                }
+                if (debugAudio) {
+                    std::cerr << "structure bar=" << structure.barIndex
+                              << " novelty=" << structure.novelty
+                              << " threshold=" << structure.noveltyThreshold
+                              << (structure.sectionCrossed ? " section" : " phrase") << "\n";
+                }
+            }
             bassImpact = std::max(bassImpact, audioFeatures.kickImpact);
             midImpact = std::max(midImpact, audioFeatures.snareImpact);
             trebleImpact = std::max(trebleImpact, audioFeatures.hatImpact);
@@ -859,7 +1004,12 @@ int main(int argc, char** argv) {
             // it receives. Give it a visual-only sidechain whose transients
             // have more dynamic range, so each preset's own equations react.
             // This never touches the audio sent to the speakers.
-            const float visualDrive = 1.0f + 0.55f * bassImpact
+            const float kickAccentPosition = std::clamp(
+                (bassImpact - 0.52f) / (0.82f - 0.52f), 0.0f, 1.0f);
+            const float kickAccent = kickAccentPosition * kickAccentPosition
+                                   * (3.0f - 2.0f * kickAccentPosition);
+            const float visualDrive = 1.0f + 0.40f * bassImpact
+                                             + 0.45f * kickAccent
                                              + 0.28f * midImpact
                                              + 0.14f * trebleImpact;
             constexpr double tau = 6.28318530717958647692;
@@ -867,7 +1017,7 @@ int main(int argc, char** argv) {
                 // Short tone bursts put unmistakable energy into the same
                 // bands exposed to MilkDrop equations. They are control
                 // signals only, not audible output.
-                const float bassBurst = 0.42f * bassImpact
+                const float bassBurst = (0.28f * bassImpact + 0.28f * kickAccent)
                     * static_cast<float>(std::sin(visualBassPhase));
                 const float midBurst = 0.20f * midImpact
                     * static_cast<float>(std::sin(visualMidPhase));
@@ -912,24 +1062,132 @@ int main(int argc, char** argv) {
             projectm_pcm_add_float(engines[1], projectmPcm.data(), forwardedFrames, PROJECTM_STEREO);
         }
 
-        // Scene changes are musical events. After a minimum dwell, wait for a
-        // real bass onset and begin projectM's smooth blend on that boundary.
-        // The deadline still advances ambient or unusually quiet tracks.
-        const bool confidentBar = audioFeatures.beatConfidence >= 0.35f
-                               && audioFeatures.barCrossed;
-        const bool fallbackOnset = audioFeatures.beatConfidence < 0.35f
-                                && bassHitThisFrame;
-        const bool musicalTransition = now >= transitionWindowAt
-                                    && (confidentBar || fallbackOnset);
-        const bool deadlineTransition = now >= transitionDeadlineAt;
-        if (!presetTransitionActive && presets.size() > 1
-            && (skipPreset || previousPreset || musicalTransition || deadlineTransition)) {
+        const bool timelineEligible = timeline
+            && timeline->appliesTo(playbackClock.identity());
+        if (timeline && !timelineEligible && playbackClock.hasState()
+            && !timelineMismatchReported) {
+            std::cerr << "timeline: track identity does not match "
+                      << playbackClock.identity() << "; using live director\n";
+            timelineMismatchReported = true;
+        }
+        if (timelineEligible && !pairedFollower) {
+            const double timelinePosition = forcedTimelinePosition >= 0.0
+                ? forcedTimelinePosition
+                : playbackClock.hasState()
+                    ? playbackClock.positionAt(now / 1000.0)
+                    : (now - timelineClockStartedAt) / 1000.0;
+            const auto decision = timelineDirector.sync(
+                *timeline, timelinePosition, presetIndex, presets.size(), seekedThisFrame,
+                [&](int preferredFamily) {
+                    return chooseAutomaticPreset(energyForTrack(musicalEnergy), preferredFamily);
+                },
+                [&](std::size_t index) {
+                    return visualFamily(profileForPreset(presets[index]));
+                });
+            if (decision) {
+                const TimelineSection& section = timeline->sections()[decision->sectionIndex];
+                if (decision->sectionChanged) {
+                    std::cerr << "section: " << section.identity;
+                    if (!section.label.empty()) std::cerr << " (" << section.label << ")";
+                    std::cerr << " at " << timelinePosition << "s\n";
+                }
+                if (decision->hardSync
+                    && (presetTransitionActive || decision->targetPreset != presetIndex)) {
+                    presetIndex = decision->targetPreset;
+                    presetTransitionActive = false;
+                    pendingTimelinePreset.reset();
+                    recentPresets.clear();
+                    recentPresets.push_back(presetIndex);
+                    loadPresetAtVisualTempo(engines[activeEngine], presets[presetIndex], false);
+                    transitionWindowAt = UINT64_MAX;
+                    transitionDeadlineAt = UINT64_MAX;
+                    publishPairedState(presetIndex, 0, 0, true);
+                    std::cerr << "preset: " << presets[presetIndex]
+                              << " (timeline seek)\n";
+                } else if (decision->sectionChanged && !decision->initial) {
+                    pendingTimelinePreset = decision->targetPreset;
+                }
+            }
+        }
+        if (pendingTimelinePreset.value_or(presets.size()) == presetIndex) {
+            pendingTimelinePreset.reset();
+        }
+
+        if (pairedFollower) {
+            std::ifstream pairedInput(pairedStatePath);
+            std::ostringstream pairedText;
+            pairedText << pairedInput.rdbuf();
+            const auto pairedState = pairedDisplayFollower.consume(
+                pairedText.str(), presets.size());
+            if (pairedState && pairedState->hardSync) {
+                presetIndex = pairedState->presetIndex;
+                presetTransitionActive = false;
+                pendingTimelinePreset.reset();
+                recentPresets.clear();
+                recentPresets.push_back(presetIndex);
+                loadPresetAtVisualTempo(engines[activeEngine], presets[presetIndex], false);
+                transitionWindowAt = UINT64_MAX;
+                transitionDeadlineAt = UINT64_MAX;
+                std::cerr << "preset: " << presets[presetIndex]
+                          << " (paired hard sync)\n";
+            } else if (pairedState && pairedState->presetIndex != presetIndex
+                       && !presetTransitionActive) {
+                transitionOutgoingPresetIndex = presetIndex;
+                presetIndex = pairedState->presetIndex;
+                presetTransitionDuration = pairedState->durationMs;
+                transitionMode = pairedState->transitionMode;
+                recentPresets.push_back(presetIndex);
+                const std::size_t historyLimit = presetHistoryLimit(presets.size());
+                while (recentPresets.size() > historyLimit) recentPresets.pop_front();
+                const int incomingEngine = 1 - activeEngine;
+                if (!loadPresetAtVisualTempo(
+                        engines[incomingEngine], presets[presetIndex], false)) {
+                    std::cerr << "could not load paired preset: "
+                              << presets[presetIndex] << "\n";
+                }
+                presetTransitionActive = true;
+                presetTransitionStartedAt = now;
+                transitionWindowAt = UINT64_MAX;
+                transitionDeadlineAt = UINT64_MAX;
+                std::cerr << "preset: " << presets[presetIndex]
+                          << " (paired transition)\n";
+            }
+        }
+
+        // Without an authored timeline, confident audio follows sustained
+        // structural changes and phrase fallbacks. Uncertain audio keeps the
+        // conservative bass-onset and wall-clock fallback.
+        const bool fallbackOnset = !structureClockLocked && bassHitThisFrame;
+        const bool confidentStructure = structureClockLocked;
+        const bool musicalTransition = !timelineEligible && now >= transitionWindowAt
+            && (confidentStructure
+                    ? sectionBoundaryThisFrame
+                      || (now >= transitionDeadlineAt && phraseBoundaryThisFrame)
+                    : fallbackOnset);
+        const bool deadlineTransition = !timelineEligible && !confidentStructure
+                                     && now >= transitionDeadlineAt;
+        const bool timelineTransition = pendingTimelinePreset.has_value();
+        if (!pairedFollower && !presetTransitionActive && presets.size() > 1
+            && (skipPreset || previousPreset || timelineTransition
+                || musicalTransition || deadlineTransition)) {
             const std::size_t outgoingPreset = presetIndex;
             transitionOutgoingPresetIndex = outgoingPreset;
             const PresetEnergy targetEnergy = energyForTrack(musicalEnergy);
+            const bool nativeSectionTransition = musicalTransition
+                                              && sectionBoundaryThisFrame
+                                              && !skipPreset && !previousPreset;
+            const int preferredFamily = nativeSectionTransition
+                ? visualMotifs.familyFor(structureMotifIdentity).value_or(-1) : -1;
             presetIndex = previousPreset ? (presetIndex + presets.size() - 1) % presets.size()
                 : skipPreset ? (presetIndex + 1) % presets.size()
-                : chooseAutomaticPreset(targetEnergy);
+                : timelineTransition ? *pendingTimelinePreset
+                : chooseAutomaticPreset(targetEnergy, preferredFamily);
+            if (nativeSectionTransition && structureMotifIdentity >= 0) {
+                visualMotifs.remember(
+                    structureMotifIdentity,
+                    visualFamily(profileForPreset(presets[presetIndex])));
+            }
+            pendingTimelinePreset.reset();
             const PresetProfile& outgoing = profileForPreset(presets[outgoingPreset]);
             const PresetProfile& incoming = profileForPreset(presets[presetIndex]);
             auto musicalDuration = [&](float bars, uint64_t fallbackMs) {
@@ -938,14 +1196,14 @@ int main(int argc, char** argv) {
                                          / std::max(60.0f, audioFeatures.bpm);
                 return static_cast<uint64_t>(std::clamp(milliseconds, 2500.0f, 7000.0f));
             };
-            if (outgoing.topology == incoming.topology) {
+            if (outgoing.family == incoming.family) {
                 presetTransitionDuration = musicalDuration(1.0f, 4000);
                 transitionMode = 0;
             }
             else if (directionsCompatible(outgoing.direction, incoming.direction)) {
                 presetTransitionDuration = musicalDuration(1.5f, 5000);
                 transitionMode = 1;
-            } else if (topologyFamily(outgoing.topology) == topologyFamily(incoming.topology)) {
+            } else if (outgoing.bridge == incoming.bridge) {
                 presetTransitionDuration = musicalDuration(1.5f, 5500);
                 transitionMode = 2;
             } else {
@@ -953,7 +1211,7 @@ int main(int argc, char** argv) {
                 transitionMode = 3;
             }
             recentPresets.push_back(presetIndex);
-            const std::size_t historyLimit = std::min<std::size_t>(5, presets.size() - 1);
+            const std::size_t historyLimit = presetHistoryLimit(presets.size());
             while (recentPresets.size() > historyLimit) recentPresets.pop_front();
             const int incomingEngine = 1 - activeEngine;
             if (!loadPresetAtVisualTempo(engines[incomingEngine], presets[presetIndex], false)) {
@@ -963,25 +1221,50 @@ int main(int argc, char** argv) {
             presetTransitionStartedAt = now;
             transitionWindowAt = UINT64_MAX;
             transitionDeadlineAt = UINT64_MAX;
+            publishPairedState(
+                presetIndex, presetTransitionDuration, transitionMode, false);
             const char* energyName = targetEnergy == PresetEnergy::Driving ? "driving"
                 : targetEnergy == PresetEnergy::Medium ? "medium" : "calm";
             std::cerr << "preset: " << presets[presetIndex]
                       << (previousPreset ? " (previous)" : skipPreset ? " (manual)"
+                          : timelineTransition ? " (timeline section)"
                           : musicalTransition ? " (automatic on boundary)"
                           : " (automatic on deadline)")
                       << ", energy: " << energyName << "\n";
+            if (musicalTransition && confidentStructure) {
+                std::cerr << "structure: "
+                          << (sectionBoundaryThisFrame ? "section" : "phrase fallback")
+                          << ", novelty=" << structureNovelty << "\n";
+                if (nativeSectionTransition) {
+                    std::cerr << "motif: " << structureMotifIdentity
+                              << (structureMotifRecalled ? " recalled" : " new")
+                              << ", family="
+                              << visualFamily(profileForPreset(presets[presetIndex]))
+                              << "\n";
+                }
+            }
         }
 
         if (presetTransitionActive
             && now - presetTransitionStartedAt >= presetTransitionDuration) {
             activeEngine = 1 - activeEngine;
             presetTransitionActive = false;
-            const PresetProfile& profile = profileForPreset(presets[presetIndex]);
-            std::uniform_int_distribution<uint64_t> dwellTime(profile.dwellMinMs,
-                                                               profile.dwellMaxMs);
-            const uint64_t dwell = dwellTime(randomEngine);
-            transitionWindowAt = now + dwell;
-            transitionDeadlineAt = transitionWindowAt + 4000;
+            if (pairedFollower || timelineEligible) {
+                transitionWindowAt = UINT64_MAX;
+                transitionDeadlineAt = UINT64_MAX;
+            } else if (structureClockLocked) {
+                const float barMilliseconds = 4.0f * 60000.0f
+                                            / std::max(60.0f, audioFeatures.bpm);
+                transitionWindowAt = now + static_cast<uint64_t>(6.0f * barMilliseconds);
+                transitionDeadlineAt = now + static_cast<uint64_t>(12.0f * barMilliseconds);
+            } else {
+                const PresetProfile& profile = profileForPreset(presets[presetIndex]);
+                std::uniform_int_distribution<uint64_t> dwellTime(profile.dwellMinMs,
+                                                                   profile.dwellMaxMs);
+                const uint64_t dwell = dwellTime(randomEngine);
+                transitionWindowAt = now + dwell;
+                transitionDeadlineAt = transitionWindowAt + 4000;
+            }
         }
 
         const float frameSeconds = std::min(0.1f, (now - previousFrameAt) / 1000.0f);
@@ -1099,7 +1382,9 @@ int main(int argc, char** argv) {
         SDL_GL_SwapWindow(window);
         if (!windowShown && (hasCover || artLookupComplete)) {
             SDL_ShowWindow(window);
+            SDL_DisableScreenSaver();
             windowShown = true;
+            std::cerr << "idle: inhibition requested while Omadrop is visible\n";
         }
 
         // SDL's swap interval is not reliably honored by every Wayland path.
@@ -1114,10 +1399,10 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (artHelperPid > 0) {
-        kill(artHelperPid, SIGTERM);
-        waitpid(artHelperPid, nullptr, 0);
-        close(artHelperFd);
+    if (mprisHelperPid > 0) {
+        kill(mprisHelperPid, SIGTERM);
+        waitpid(mprisHelperPid, nullptr, 0);
+        close(mprisHelperFd);
     }
     kill(audioPid, SIGTERM);
     waitpid(audioPid, nullptr, 0);

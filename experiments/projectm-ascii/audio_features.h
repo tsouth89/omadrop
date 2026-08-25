@@ -51,6 +51,21 @@ public:
     AudioFeatureBus(const AudioFeatureBus&) = delete;
     AudioFeatureBus& operator=(const AudioFeatureBus&) = delete;
 
+    void resetClock() {
+        onsetHistory_.fill(0.0f);
+        tempoVotes_.fill(0.0f);
+        historyFrames_ = 0;
+        beatPeriod_ = 30.0f;
+        beatIndex_ = 0;
+        features_.bpm = 120.0f;
+        features_.beatPhase = 0.0f;
+        features_.barPhase = 0.0f;
+        features_.phrasePhase = 0.0f;
+        features_.beatConfidence = 0.0f;
+        features_.beatCrossed = false;
+        features_.barCrossed = false;
+    }
+
     const AudioFeatures& processStereo(const float* stereo, std::size_t frames) {
         const std::size_t accepted = std::min<std::size_t>(frames, windowSize);
         std::move(samples_.begin() + accepted, samples_.end(), samples_.begin());
@@ -160,9 +175,11 @@ private:
 
     void updateClock() {
         std::move(onsetHistory_.begin() + 1, onsetHistory_.end(), onsetHistory_.begin());
-        onsetHistory_.back() = features_.kick ? 1.0f
-                             : features_.snare ? 0.62f
-                             : features_.hat ? 0.28f : 0.0f;
+        float onsetStrength = 0.0f;
+        for (float flux : features_.flux) {
+            onsetStrength += std::log1p(std::clamp(flux - 0.8f, 0.0f, 5.0f));
+        }
+        onsetHistory_.back() = onsetStrength;
         historyFrames_ = std::min<int>(historyFrames_ + 1, onsetHistory_.size());
 
         if (historyFrames_ >= 240 && frame_ % 16 == 0) {
@@ -188,7 +205,7 @@ private:
                 const float bpm = 3600.0f / lag;
                 const float octaveDistance = std::log2(std::max(1.0f, bpm) / 120.0f);
                 const float prior = std::exp(-0.5f * octaveDistance * octaveDistance
-                                             / (1.25f * 1.25f));
+                                             / (2.5f * 2.5f));
                 const float score = normalized * prior;
                 lagScores[lag] = score;
                 if (score > bestScore) {
@@ -197,11 +214,25 @@ private:
                 }
             }
             if (bestScore > 0.08f) {
+                for (int lag = minimumLag; lag <= maximumLag; ++lag) {
+                    tempoVotes_[lag] = tempoVotes_[lag] * 0.999f + lagScores[lag];
+                }
+                bestLag = minimumLag;
+                for (int lag = minimumLag + 1; lag <= maximumLag; ++lag) {
+                    if (tempoVotes_[lag] > tempoVotes_[bestLag]) bestLag = lag;
+                }
+                const float votedBpm = 3600.0f / bestLag;
+                const int votedDoubleTempoLag = static_cast<int>(std::round(bestLag * 0.5f));
+                if (votedBpm < 90.0f && votedDoubleTempoLag >= minimumLag
+                    && tempoVotes_[votedDoubleTempoLag] >= tempoVotes_[bestLag] * 0.75f) {
+                    bestLag = votedDoubleTempoLag;
+                }
+
                 float estimatedLag = static_cast<float>(bestLag);
                 if (bestLag > minimumLag && bestLag < maximumLag) {
-                    const float y0 = lagScores[bestLag - 1];
-                    const float y1 = lagScores[bestLag];
-                    const float y2 = lagScores[bestLag + 1];
+                    const float y0 = tempoVotes_[bestLag - 1];
+                    const float y1 = tempoVotes_[bestLag];
+                    const float y2 = tempoVotes_[bestLag + 1];
                     const float denominator = y0 - 2.0f * y1 + y2;
                     if (std::abs(denominator) > 1e-6f) {
                         estimatedLag += std::clamp(0.5f * (y0 - y2) / denominator,
@@ -212,6 +243,7 @@ private:
                 features_.beatConfidence += (std::min(1.0f, bestScore * 1.35f)
                                              - features_.beatConfidence) * 0.25f;
             } else {
+                for (float& vote : tempoVotes_) vote *= 0.999f;
                 features_.beatConfidence *= 0.92f;
             }
         }
@@ -255,7 +287,8 @@ private:
     int kickCooldown_ = 0;
     int snareCooldown_ = 0;
     int hatCooldown_ = 0;
-    std::array<float, 480> onsetHistory_{};
+    std::array<float, 3600> onsetHistory_{};
+    std::array<float, 59> tempoVotes_{};
     int historyFrames_ = 0;
     float beatPeriod_ = 30.0f;
     int beatIndex_ = 0;

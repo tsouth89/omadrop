@@ -2,6 +2,7 @@
 set -euo pipefail
 root=$(dirname "$(dirname "$(readlink -f "$0")")")
 runtime_dir=${XDG_RUNTIME_DIR:-/tmp}/omadrop
+pair_state=$runtime_dir/pair-state
 
 case ${1:-} in
   --version)
@@ -92,12 +93,20 @@ fi
 pids=()
 stop_renderers() {
   ((${#pids[@]})) && kill -TERM "${pids[@]}" 2>/dev/null || true
-  rm -f "$runtime_dir"/display-*.pid "$runtime_dir"/display-*.state
+  rm -f "$runtime_dir"/display-*.pid "$runtime_dir"/display-*.state \
+    "$pair_state" "$pair_state.request"
 }
 trap stop_renderers TERM INT EXIT
 mkdir -p "$runtime_dir"
+rm -f "$pair_state" "$pair_state.request"
 for ((display_index = 0; display_index < display_count; display_index++)); do
+  if ((display_index == 0)); then
+    pair_role=leader
+  else
+    pair_role=follower
+  fi
   OMADROP_DISPLAY_INDEX=$display_index OMADROP_FULLSCREEN=0 \
+    OMADROP_PAIR_STATE=$pair_state OMADROP_PAIR_ROLE=$pair_role \
     "$root/experiments/projectm-ascii/run-curated.sh" "$@" &
   pids+=("$!")
   printf '%s\n' "$!" >"$runtime_dir/display-$display_index.pid"
