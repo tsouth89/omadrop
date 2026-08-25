@@ -20,8 +20,13 @@ Implemented in the native path:
 - bounded audio buffering that preserves normal packet bursts and drops only
   excess backlog after render stalls
 - output-specific audio/video calibration and raw-audio analyzer replay
+- native beat-confidence hysteresis, four-bar phrases, and sustained spectral
+  novelty detection
+- native section fingerprints that recall a topology family with a fresh preset
 - authored per-preset kick, snare, and hat geometry deformation
-- one-to-two-bar scene changes with independently reacting dual renderers
+- restrained structural scene scheduling with independently reacting dual renderers
+- optional full-song timelines synchronized to MPRIS playback position
+- stable visual motif recall when a section identity returns
 - randomized curated selection with recent-preset exclusion
 - MPRIS cover hold, ribbon dissolve, and album-derived scene palette
 - color-aware cover glyph sampling that separates dot activation from color
@@ -38,12 +43,34 @@ Current curated rotation:
 4. Martin, Night Cathedral
 5. Aderrasi, Bitterfeld
 6. Aderrasi + Geiss, Airhandler (Painterly Kaleidoscope 2)
+7. Tokyo Corridor, shifter tumbling cubes remix
+8. Unchained + Rovastar, Wormhole Pillars (Hall of Shadows mix)
+9. Rovastar, VooV's Organic Light
+10. fiShbRaiN, Crystal Glasses
+11. shifter, Mandala
+12. Geiss, Myriad Mosaics
+13. EoS + Phat, Cubetrace v2
+14. Krash + Rovastar, Cerebral Demons (Phat + EoS Moire remix)
+15. The NG + Geiss + Flexi, The Waterfowl in the Rain
+16. Phat + fiShbRaiN + EoS, Mandala Chasers remix
 
 The next product work is broader top-tier preset qualification, per-preset
 reaction tuning, transition polish, packaging, and a documented public install
 path. The sections below preserve research and prototype lessons. Anything
 describing `shell.qml`, `field.frag`, Genesis, or eight procedural scenes is
 historical context rather than the active renderer.
+
+The live product path deliberately has no AI runtime. Classical DSP provides
+the rhythm hierarchy and online arrangement novelty, so Spotify and any other
+system audio work without uploads, accounts, model files, or preprocessing.
+Optional JSON timelines remain useful as an authoring oracle and regression
+fixture, not as an end-user requirement.
+
+Tempo estimation uses a sixty-second spectral-flux memory and slow consensus
+across overlapping windows. This avoids letting a sparse intro, breakdown, or
+outro pull the beat clock onto a temporary subdivision. Structural events have
+a twenty-four-second minimum spacing in addition to the bar hierarchy, so fast
+music does not cause frantic scene replacement.
 
 ---
 
@@ -233,16 +260,13 @@ itself every frame, so the useful range is far smaller than it looks. Body
 0.34, bursts 0.42, filigree 0.24, wave 0.52, decay ~0.75. Doubling any of
 these fills the frame with haze within a couple of seconds.
 
-### Packaging (needed for Omarchy inclusion)
+### Packaging (historical Quickshell path)
 
-Fixed already: the app is **relocatable** (install dir derived from
-`Qt.resolvedUrl(".")`, not a hardcoded `~/Projects` path) and follows the
-**system monospace** via fontconfig rather than pinning JetBrains Mono. The
-doctor checks the resolved face actually carries braille (U+2800-28FF).
-
-Still to do: PKGBUILD, ship pre-baked `.qsb` (so `qt6-shadertools` is
-build-time only), decide whether `python-numpy` is an acceptable runtime dep
-or the analysis engine gets rewritten, menu/keybinding integration.
+The retired Quickshell prototype was made relocatable and followed the system
+monospace, but its `.qsb`, Qt, and Python packaging notes no longer apply. The
+current installer builds the native renderer, installs its Arch dependencies,
+copies the bundled presets, and manages Omarchy shortcuts with backup and
+rollback validation. A PKGBUILD remains future work.
 
 ### Next, in order
 

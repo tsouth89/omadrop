@@ -16,14 +16,16 @@ classic MilkDrop presets an unmistakable Omarchy finish.
 - MPRIS album art with a held intro and ribbon dissolve
 - Color-aware ASCII cover sampling that preserves saturated artwork
 - Kick, snare, hat, bass, mid, and treble analysis
+- Native beat, bar, phrase, and arrangement-change tracking
+- Automatic visual-family recall for recurring musical entrances
 - Scene-aware movement that deforms preset geometry
 - Smooth, music-aware preset transitions
 - Randomized curated openings with repeat avoidance
 - Optional ASCII or traditional MilkDrop rendering
 - Paired fullscreen output across multiple Hyprland monitors
 
-Omadrop is in active development. The current preset rotation is intentionally
-small while each scene is tuned for coherence, musical response, and ASCII
+Omadrop is in active development. Its 16-scene rotation is intentionally
+curated while each scene is tuned for coherence, musical response, and ASCII
 readability.
 
 Current release: **0.1.1**
@@ -34,6 +36,7 @@ Current release: **0.1.1**
 - SDL2, GLEW, and OpenGL 3.3
 - PipeWire
 - FFTW
+- json-c
 - libpng
 - ImageMagick
 - curl, GLib, and jq
@@ -101,14 +104,21 @@ display.
 ## How it works
 
 ```text
-PipeWire audio  ->  analysis and beat clock  ->  libprojectM feedback
-MPRIS artwork   ->  hold and dissolve        ->  Omadrop ASCII material
+PipeWire audio  ->  rhythm and structure  ->  libprojectM feedback
+MPRIS artwork   ->  hold and dissolve     ->  Omadrop ASCII material
 ```
 
 MilkDrop presets remain programs, not static configurations. Omadrop preserves
 their recursive feedback, shaders, waves, and shapes, then adds a scene-aware
 conductor that maps musical roles onto their existing structures. The ASCII
 material is applied last so fine lines and feedback trails survive accumulation.
+
+The live director is native signal processing, not a hosted AI service. It
+learns the beat clock, groups bars into phrases, and looks for sustained texture
+changes before replacing a scene. Once the clock is reliable, scenes get a
+six-bar minimum and wait for a structural boundary, with a twelve-bar phrase
+fallback. Similar section entrances recall a visual topology but vary the exact
+preset. There is no model download, account, or song upload.
 
 ## Development
 
@@ -122,7 +132,10 @@ cd experiments/projectm-ascii
 ./audio-features-test
 ./audio-queue-test
 ./preset-profiles-test
+./preset-selector-test
 ./preset-adapters-test
+./musical-structure-test
+./structure-timeline-test ./fixtures/manual-song.json
 ```
 
 The landing page is an Astro project in [`site/`](site/):
@@ -139,7 +152,7 @@ Production builds run with `npm run build`. Cloudflare Pages deploys the
 
 ## Presets and attribution
 
-Omadrop bundles six presets selected from the classic projectM collection.
+Omadrop bundles 16 presets selected from the classic projectM collection.
 Their original filenames and author credits are preserved. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the complete list and
 rights notice. projectM is a separate project and is not affiliated with

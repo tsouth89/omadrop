@@ -24,8 +24,9 @@ preset="presets/curated/Aderrasi - Contortion (Escher's Tunnel Mix).milk"
 `projectm-ascii-live` is the live Omadrop renderer.
 
 Replay a raw 44.1 kHz stereo f32 sink capture through the production analyzer
-with `audio-feature-replay CAPTURE.raw`. It reports kick, snare, and hat rates,
-impact range, BPM, and clock confidence for repeatable real-song tuning.
+with `audio-feature-replay CAPTURE.raw`. It reports percussion, tempo, clock
+confidence, bar novelty, phrases, and structural boundaries for repeatable
+real-song tuning.
 
 ## Live GPU proof
 
@@ -44,19 +45,26 @@ Run the first curated rotating set with:
 ./experiments/projectm-ascii/run-curated.sh
 ```
 
-After each profile's minimum dwell, scenes wait for a confident bar boundary
-or bass onset and begin a one to two bar dual-renderer morph. Each preset keeps
-its own musical reaction through the transition, with a deadline for quiet
-passages. Press `n` to skip immediately and Escape to quit. `[` and `]` adjust audio/video
+Once the native beat clock is reliable, scenes breathe for at least six bars.
+Sustained arrangement changes can then start a one to two bar dual-renderer
+morph. If no strong change arrives, a phrase boundary after twelve bars advances
+the scene. Low-confidence material keeps the bass-onset and deadline fallback.
+Strong boundaries are spaced by at least twenty-four seconds. Similar spectral
+entrances recall the same visual family while choosing a fresh compatible
+preset, creating theme and variation instead of exact replay. Each preset
+continues reacting to individual hits throughout. Press `n` to skip immediately
+and Escape to quit. `[` and `]` adjust audio/video
 alignment by 10 ms while listening. `OMADROP_SYNC_MS` sets the initial delay;
 Bluetooth outputs default to 180 ms and wired outputs to 35 ms. Manual changes
 are saved per output in `$XDG_CONFIG_HOME/omadrop/sync-by-sink/`, so switching
 between Bluetooth and wired devices preserves separate calibration values.
 
 Press `p` to return to the previous preset while auditioning the curated set.
-Automatic changes randomly choose within the track's slowly measured calm or
-driving energy class. The current preset and four most recent presets are
-excluded, preventing obvious repeats and short loops.
+Automatic changes choose within the track's slowly measured calm or driving
+energy class, with a small variation among the strongest compatible candidates.
+The current preset and seven most recent presets are excluded. If a recalled
+family has no fresh variant, selection widens to its related visual group before
+reusing a recent scene.
 
 Press `a` to switch between Omadrop ASCII and the original MilkDrop rendering.
 Press F11 to toggle fullscreen.
@@ -70,10 +78,51 @@ milliseconds. `bin/motion-capture` uses these controls to inspect the native SDL
 renderer without manual input. `OMADROP_REACTION_SCALE=0` disables the authored
 post-process movement for deterministic native-versus-authored A/Bs.
 
+## Structure timelines
+
+Timelines are an optional authoring and test override. Normal Spotify, browser,
+and local playback uses the native live detector and needs no timeline or AI
+runtime.
+
+`OMADROP_TIMELINE_PATH` loads an optional full-song JSON timeline. While it is
+active, section boundaries replace randomized dwell scheduling. Each section
+identity receives a stable preset, so later occurrences of the same identity
+return to the same visual family. MPRIS position keeps the timeline aligned
+through pause and seek, and a seek across sections restores the target preset
+immediately.
+
+```sh
+OMADROP_TIMELINE_PATH=./experiments/projectm-ascii/fixtures/manual-song.json \
+  ./experiments/projectm-ascii/run-curated.sh
+```
+
+The optional `track.identity` must exactly match the player's MPRIS
+`xesam:url`. Omit it only for a deliberately unbound test fixture. For a
+frozen visual check, `OMADROP_TIMELINE_POSITION` overrides the player position
+with a non-negative number of seconds. Invalid timelines fail at startup. If
+no timeline is configured, or its identity does not match, the existing live
+audio director remains active.
+
+The minimum schema is:
+
+```json
+{
+  "duration": 100.0,
+  "track": {"identity": "file:///music/example.mp3"},
+  "sections": [
+    {"start": 0.0, "end": 20.0, "identity": "A", "label": "intro"},
+    {"start": 20.0, "end": 40.0, "identity": "B", "label": "verse"}
+  ]
+}
+```
+
 Album art comes from MPRIS, holds for five seconds, then dissolves over five
-seconds in coordinated ribbons. Cover glyphs use peak luminance for dot
-activation and a chroma-weighted representative color, preserving saturated
-linework beside pale highlights.
+seconds in coordinated ribbons. Each braille cell averages the cover's RGB and
+luminance, applies a restrained cell-local tone curve, and caps dot activation
+below a solid field. A dim original-color underlay preserves faces, typography,
+and fine texture while the glyphs remain dominant. The underlay fades early in
+the dissolve, and cover reactions stay restrained so hard hits do not distort
+the artwork.
 
 ## Current findings
 
@@ -84,16 +133,22 @@ linework beside pale highlights.
   them and should inform the production GPU composite shader.
 - The old hardcoded procedural scenes are no longer the product path.
 - A live, GPU-only projectM-to-ASCII handoff works in an SDL OpenGL window.
-- Per-preset topology and reaction profiles are required. A universal overlay
+- Per-preset family and reaction profiles are required. A universal overlay
   cannot make every MilkDrop composition feel musically intentional.
 - Hit envelopes preserve transient strength, so harder detected hits produce
   stronger preset gestures instead of the same binary pulse.
 - Album covers and preset frames need different color sampling. Brightest-pixel
   pooling preserves preset hairlines but can wash out cover palettes.
 
-## Next
+## Preset qualification
 
-- Qualify more top-tier presets that remain coherent under ASCII conversion.
-- Tune musical roles and reaction gain per qualified preset.
-- Continue improving topology-preserving transitions.
-- Add packaging and an end-user install path.
+The review harness now uses the same 12x24 braille cell geometry, level
+quantization, and authored exposure values as the live renderer. Build it, then
+create a deterministic metrics table and labeled contact sheet:
+
+```bash
+./bin/preset-audit cache/preset-audit presets/curated/*.milk
+```
+
+This tooling is for maintainers. It adds no runtime service, account, model, or
+AI dependency to Omadrop.
