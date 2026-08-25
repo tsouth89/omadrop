@@ -28,7 +28,7 @@ Omadrop is in active development. Its 16-scene rotation is intentionally
 curated while each scene is tuned for coherence, musical response, and ASCII
 readability.
 
-Current release: **0.1.1**
+Current release: **0.2.0**
 
 ## Requirements
 
@@ -51,7 +51,7 @@ Run the environment check before building:
 ## Install on Omarchy
 
 ```bash
-git clone --branch v0.1.1 https://github.com/tsouth89/omadrop.git
+git clone --branch v0.2.0 https://github.com/tsouth89/omadrop.git
 cd omadrop
 ./install.sh
 ```

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-08-24
 
 - Add optional song-structure timelines with MPRIS seek synchronization and
   repeated-section visual memory
