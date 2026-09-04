@@ -24,6 +24,43 @@ for command in ffmpeg ffprobe gpu-screen-recorder hyprctl jq; do
   }
 done
 
+controlled_audio_file=${OMADROP_DEMO_AUDIO_FILE:-}
+controlled_sink_input=
+if [[ -n $controlled_audio_file ]]; then
+  for command in ffplay pactl; do
+    command -v "$command" >/dev/null || {
+      echo "omadrop-demo-record: $command is required for OMADROP_DEMO_AUDIO_FILE" >&2
+      exit 1
+    }
+  done
+  [[ -f $controlled_audio_file ]] || {
+    echo "omadrop-demo-record: audio file not found: $controlled_audio_file" >&2
+    exit 1
+  }
+fi
+
+check_competing_audio() {
+  [[ -n $controlled_audio_file ]] || return 0
+  local streams
+  streams=$(pactl -f json list sink-inputs | jq -r \
+    --arg controlled "$controlled_sink_input" '
+    .[]
+    | select(.corked != true and .mute != true)
+    | select((.index | tostring) != $controlled)
+    | (.properties["application.name"]
+       // .properties["media.name"]
+       // ("sink input " + (.index | tostring)))
+  ')
+  [[ -z $streams ]] || {
+    echo "omadrop-demo-record: unrelated audio became active during capture:" >&2
+    sed 's/^/  /' <<< "$streams" >&2
+    echo "omadrop-demo-record: recording rejected" >&2
+    return 1
+  }
+}
+
+check_competing_audio
+
 monitor=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name' | head -n 1)
 [[ -n $monitor && $monitor != null ]] || {
   echo "omadrop-demo-record: could not identify the focused monitor" >&2
@@ -139,23 +176,30 @@ done
   echo "omadrop-demo-record: timed out waiting for the recorder" >&2
   exit 1
 }
-if [[ -n ${OMADROP_DEMO_AUDIO_FILE:-} ]]; then
-  command -v ffplay >/dev/null || {
-    echo "omadrop-demo-record: ffplay is required for OMADROP_DEMO_AUDIO_FILE" >&2
-    exit 1
-  }
-  [[ -f $OMADROP_DEMO_AUDIO_FILE ]] || {
-    echo "omadrop-demo-record: audio file not found: $OMADROP_DEMO_AUDIO_FILE" >&2
-    exit 1
-  }
-  ffplay -nodisp -autoexit -loglevel error "$OMADROP_DEMO_AUDIO_FILE" &
+if [[ -n $controlled_audio_file ]]; then
+  ffplay -nodisp -autoexit -loglevel error "$controlled_audio_file" &
   audio_player_pid=$!
   sleep 0.08
+  mapfile -t controlled_inputs < <(pactl -f json list sink-inputs | jq -r '
+    .[]
+    | select(.corked != true and .mute != true)
+    | select((.properties["application.name"] // "") == "ffplay")
+    | .index
+  ')
+  if ((${#controlled_inputs[@]} != 1)); then
+    echo "omadrop-demo-record: could not isolate the controlled ffplay stream" >&2
+    exit 1
+  fi
+  controlled_sink_input=${controlled_inputs[0]}
+  check_competing_audio
 fi
 touch "$start_file"
 
 for ((attempt = 0; attempt < 2400; attempt++)); do
   [[ -e $stop_file ]] && break
+  if [[ -n $controlled_audio_file ]] && ((attempt % 10 == 0)); then
+    check_competing_audio || exit 1
+  fi
   if ! kill -0 "$demo_pid" 2>/dev/null; then
     break
   fi

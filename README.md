@@ -19,7 +19,7 @@ the immediate rhythm and the larger structure of a track, not just its volume.
 
 <p align="center">
   <a href="https://omadrop.com">Website</a> ·
-  <a href="https://github.com/btsouth/omadrop/releases/download/v0.3.0/omadrop-v0.3.0-demo.mp4">33-second demo</a> ·
+  <a href="https://github.com/btsouth/omadrop/releases/download/v0.3.0/omadrop-v0.3.0-demo.mp4">31-second demo</a> ·
   <a href="https://github.com/btsouth/omadrop/releases/tag/v0.3.0">Latest release</a>
 </p>
 
