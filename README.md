@@ -196,7 +196,8 @@ bin/reactivity-audit
 
 Read [NOTES.md](NOTES.md) before changing the renderer. It records the audio
 fixtures, visual test workflow, architecture decisions, and known silent
-failure modes. The staged native-engine design is in
+failure modes. The next product phases are in
+[docs/roadmap.md](docs/roadmap.md); the completed native-engine buildout is in
 [docs/native-engine-plan.md](docs/native-engine-plan.md).
 
 The landing page is an Astro project in [`site/`](site/). Run it locally with

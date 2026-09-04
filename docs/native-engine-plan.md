@@ -1,10 +1,13 @@
 # Omadrop native engine plan
 
+> **Status:** Completed in v0.3. This file records the native-engine buildout.
+> Current product work is tracked in the [post-v0.3 roadmap](roadmap.md).
+
 ## Goal
 
 Build an original visual engine whose rhythm, instrumentation, and song
-structure remain understandable with the audio muted. Keep projectM as a
-compatibility and reference backend until the native path is proven.
+structure are visible in the composition. Keep projectM as a compatibility and
+reference backend until the native path is proven.
 
 ## Product rules
 
