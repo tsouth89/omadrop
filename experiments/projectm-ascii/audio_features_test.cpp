@@ -22,6 +22,36 @@ struct TempoResult {
     int checked = 0;
     int bars = 0;
 };
+struct TextureResult {
+    float harmonic = 0.0f;
+    float percussive = 0.0f;
+    float centroid = 0.0f;
+    float stereoWidth = 0.0f;
+};
+
+TextureResult runTexture(float frequency, float sideAmount) {
+    AudioFeatureBus bus;
+    std::vector<float> stereo(AudioFeatureBus::hopSize * 2, 0.0f);
+    double middlePhase = 0.0;
+    double sidePhase = 0.0;
+    TextureResult result;
+    for (int frame = 0; frame < 240; ++frame) {
+        for (int i = 0; i < AudioFeatureBus::hopSize; ++i) {
+            const float middle = 0.35f * static_cast<float>(std::sin(middlePhase));
+            const float side = sideAmount * static_cast<float>(std::sin(sidePhase));
+            stereo[i * 2] = middle + side;
+            stereo[i * 2 + 1] = middle - side;
+            middlePhase += tau * frequency / AudioFeatureBus::sampleRate;
+            sidePhase += tau * frequency * 1.37 / AudioFeatureBus::sampleRate;
+            if (middlePhase >= tau) middlePhase -= tau;
+            if (sidePhase >= tau) sidePhase -= tau;
+        }
+        const auto& features = bus.processStereo(stereo.data(), AudioFeatureBus::hopSize);
+        result = {features.harmonicEnergy, features.percussiveEnergy,
+                  features.spectralCentroid, features.stereoWidth};
+    }
+    return result;
+}
 
 Counts runFixture(float frequency) {
     AudioFeatureBus bus;
@@ -159,6 +189,12 @@ bool expect(const std::string& name, int actual, int minimum, int maximum) {
 } // namespace
 
 int main() {
+    AudioFeatureBus timestampBus;
+    std::vector<float> timestampSilence(AudioFeatureBus::hopSize, 0.0f);
+    const double firstTimestamp = timestampBus.processMono(
+        timestampSilence.data(), timestampSilence.size()).audioTimeSeconds;
+    const double secondTimestamp = timestampBus.processMono(
+        timestampSilence.data(), timestampSilence.size()).audioTimeSeconds;
     const Counts silence = runFixture(0.0f);
     const Counts kick = runFixture(62.0f);
     const Counts snare = runFixture(2200.0f);
@@ -171,8 +207,17 @@ int main() {
     const TempoResult tempo140 = runTempo(140.0f);
     const TempoResult tempo174 = runTempo(174.0f);
     const TempoResult mixedTempo120 = runMixedTempo120();
+    const TextureResult lowTexture = runTexture(110.0f, 0.0f);
+    const TextureResult highTexture = runTexture(4800.0f, 0.0f);
+    const TextureResult wideTexture = runTexture(440.0f, 0.24f);
 
     bool ok = true;
+    const double expectedHopSeconds = AudioFeatureBus::hopSize
+                                    / static_cast<double>(AudioFeatureBus::sampleRate);
+    if (std::abs((secondTimestamp - firstTimestamp) - expectedHopSeconds) > 1e-9) {
+        std::cerr << "audio timestamps did not advance by one hop\n";
+        ok = false;
+    }
     ok &= expect("silence kick", silence.kick, 0, 0);
     ok &= expect("silence snare", silence.snare, 0, 0);
     ok &= expect("silence hat", silence.hat, 0, 0);
@@ -225,6 +270,21 @@ int main() {
                   << " confidence=" << mixedTempo120.confidence
                   << " aligned=" << mixedTempo120.aligned << "/" << mixedTempo120.checked
                   << " bars=" << mixedTempo120.bars << "\n";
+        ok = false;
+    }
+    if (lowTexture.harmonic < 0.45f || highTexture.harmonic < 0.45f) {
+        std::cerr << "steady tones should be harmonic: "
+                  << lowTexture.harmonic << "," << highTexture.harmonic << "\n";
+        ok = false;
+    }
+    if (highTexture.centroid < lowTexture.centroid + 0.35f) {
+        std::cerr << "spectral centroid did not separate low and high tones: "
+                  << lowTexture.centroid << "," << highTexture.centroid << "\n";
+        ok = false;
+    }
+    if (lowTexture.stereoWidth > 0.01f || wideTexture.stereoWidth < 0.25f) {
+        std::cerr << "stereo width did not separate mono and wide fixtures: "
+                  << lowTexture.stereoWidth << "," << wideTexture.stereoWidth << "\n";
         ok = false;
     }
 

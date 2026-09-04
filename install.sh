@@ -37,6 +37,7 @@ done
 dependencies=(
   gcc pkgconf libprojectm sdl2-compat glew libpng fftw
   json-c pipewire-audio libpulse imagemagick curl glib2 jq
+  ffmpeg gpu-screen-recorder
 )
 if ((install_dependencies)); then
   if command -v omarchy >/dev/null; then
@@ -52,6 +53,8 @@ fi
 "$root/experiments/projectm-ascii/build.sh"
 
 install -Dm755 "$root/bin/omadrop" "$install_root/bin/omadrop"
+install -Dm755 "$root/bin/omadrop-demo" "$install_root/bin/omadrop-demo"
+install -Dm755 "$root/bin/omadrop-demo-record" "$install_root/bin/omadrop-demo-record"
 install -Dm755 "$root/bin/omadrop-doctor" "$install_root/bin/omadrop-doctor"
 install -Dm755 "$root/bin/mpris-art" "$install_root/bin/mpris-art"
 install -Dm755 "$root/bin/mpris-state" "$install_root/bin/mpris-state"
@@ -61,10 +64,27 @@ install -Dm755 "$root/experiments/projectm-ascii/projectm-ascii-live" \
   "$install_root/experiments/projectm-ascii/projectm-ascii-live"
 install -Dm755 "$root/experiments/projectm-ascii/run-curated.sh" \
   "$install_root/experiments/projectm-ascii/run-curated.sh"
+for shader in "$root"/shaders/native/*.{vert,glsl,frag}; do
+  install -Dm644 "$shader" "$install_root/shaders/native/$(basename "$shader")"
+done
 install -d "$install_root/presets/curated"
 rm -f "$install_root/presets/curated/A New Definition for Milk - AdamFX - Laser Show in a Crystalstorm  ft Orb n Martin Inside the Forge of Isengard.milk"
 rm -f "$install_root/presets/curated/shifter - lattice (eclipse) Phat + EoS more color mix_v2.milk"
+rm -f "$install_root/presets/curated/Aderrasi - Contortion (Escher's Tunnel Mix).milk"
+rm -f "$install_root/presets/curated/Aderrasi - Halls Of Centrifuge.milk"
+rm -f "$install_root/presets/curated/EoS + Phat - cubetrace - v2.milk"
+rm -f "$install_root/presets/curated/Geiss - Myriad Mosaics.milk"
+rm -f "$install_root/presets/curated/Martin - wire dance.milk"
+rm -f "$install_root/presets/curated/Phat+fiShbRaiN+EoS_Mandala_Chasers_remix.milk"
+rm -f "$install_root/presets/curated/The NG + Geiss + Flexi - The Waterfowl In The Rain.milk"
+rm -f "$install_root/presets/curated/shifter - mandala.milk"
 install -m644 "$root"/presets/curated/*.milk "$install_root/presets/curated/"
+install -Dm644 "$root/presets/classic/Aderrasi - Contortion (Escher's Tunnel Mix).milk" \
+  "$install_root/presets/classic/Aderrasi - Contortion (Escher's Tunnel Mix).milk"
+install -Dm644 "$root/presets/classic/Aderrasi - Halls Of Centrifuge.milk" \
+  "$install_root/presets/classic/Aderrasi - Halls Of Centrifuge.milk"
+install -Dm644 "$root/presets/classic/Martin - wire dance.milk" \
+  "$install_root/presets/classic/Martin - wire dance.milk"
 install -Dm755 "$root/uninstall.sh" "$install_root/uninstall.sh"
 install -Dm644 "$root/README.md" "$install_root/README.md"
 install -Dm644 "$root/CHANGELOG.md" "$install_root/CHANGELOG.md"
@@ -73,6 +93,8 @@ install -Dm644 "$root/THIRD_PARTY_NOTICES.md" "$install_root/THIRD_PARTY_NOTICES
 install -Dm644 "$root/VERSION" "$install_root/VERSION"
 mkdir -p "$bin_dir"
 ln -sfn "$install_root/bin/omadrop" "$bin_dir/omadrop"
+ln -sfn "$install_root/bin/omadrop-demo" "$bin_dir/omadrop-demo"
+ln -sfn "$install_root/bin/omadrop-demo-record" "$bin_dir/omadrop-demo-record"
 ln -sfn "$install_root/bin/omadrop-doctor" "$bin_dir/omadrop-doctor"
 
 install_omarchy_bindings() {

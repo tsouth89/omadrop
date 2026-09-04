@@ -1,0 +1,31 @@
+#!/bin/bash
+set -euo pipefail
+
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+
+case ${1:-} in
+  -h|--help)
+    cat <<'EOF'
+Usage: omadrop-demo [--loop] [--single|--all]
+
+Play a short, curated showcase of Omadrop's strongest native scenes.
+
+  --loop    Repeat the sequence instead of closing after the final scene
+EOF
+    exit 0
+    ;;
+  --loop)
+    export OMADROP_NATIVE_SEQUENCE_ONCE=0
+    shift
+    ;;
+esac
+
+export OMADROP_NATIVE_SEQUENCE=${OMADROP_DEMO_SCENES:-spectral-ribbons,constellation-field,prism-garden,wire-organism,orbital-loom}
+export OMADROP_NATIVE_SEQUENCE_SECONDS=${OMADROP_DEMO_SCENE_SECONDS:-3.25}
+export OMADROP_NATIVE_SEQUENCE_MAX_SECONDS=${OMADROP_DEMO_SCENE_MAX_SECONDS:-5.75}
+export OMADROP_NATIVE_TRANSITION_SECONDS=${OMADROP_DEMO_TRANSITION_SECONDS:-1.75}
+export OMADROP_NATIVE_SEQUENCE_ONCE=${OMADROP_NATIVE_SEQUENCE_ONCE:-1}
+export OMADROP_COVER_HOLD_SECONDS=${OMADROP_DEMO_COVER_HOLD_SECONDS:-1.5}
+export OMADROP_COVER_DISSOLVE_SECONDS=${OMADROP_DEMO_COVER_DISSOLVE_SECONDS:-2.0}
+
+exec "$root/bin/omadrop" "$@"

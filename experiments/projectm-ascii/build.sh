@@ -7,7 +7,7 @@ g++ -std=c++20 -O2 -Wall -Wextra main.cpp -o projectm-ascii \
   $(pkg-config --cflags projectM-4 sdl2) \
   $(pkg-config --libs sdl2) -lprojectM-4 -lGL
 
-g++ -std=c++20 -O2 -Wall -Wextra live.cpp -o projectm-ascii-live \
+g++ -std=c++20 -O2 -Wall -Wextra live.cpp native_renderer.cpp -o projectm-ascii-live \
   $(pkg-config --cflags projectM-4 sdl2 glew libpng fftw3f json-c) \
   $(pkg-config --libs sdl2 glew libpng fftw3f json-c) -lprojectM-4 -lGL
 
@@ -31,6 +31,18 @@ g++ -std=c++20 -O2 -Wall -Wextra structure_timeline_test.cpp \
 
 g++ -std=c++20 -O2 -Wall -Wextra musical_structure_test.cpp \
   -o musical-structure-test
+
+g++ -std=c++20 -O2 -Wall -Wextra music_frame_test.cpp \
+  -o music-frame-test $(pkg-config --cflags --libs fftw3f)
+
+g++ -std=c++20 -O2 -Wall -Wextra native_scene_state_test.cpp \
+  -o native-scene-state-test $(pkg-config --cflags --libs fftw3f)
+
+g++ -std=c++20 -O2 -Wall -Wextra native_renderer_test.cpp native_renderer.cpp \
+  -o native-renderer-test $(pkg-config --cflags --libs sdl2 glew fftw3f) -lGL
+
+g++ -std=c++20 -O2 -Wall -Wextra native_song_replay.cpp native_renderer.cpp \
+  -o native-song-replay $(pkg-config --cflags --libs sdl2 glew fftw3f) -lGL
 
 g++ -std=c++20 -O2 -Wall -Wextra audio_replay.cpp \
   -o audio-feature-replay $(pkg-config --cflags --libs fftw3f)

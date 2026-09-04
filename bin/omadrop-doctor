@@ -3,7 +3,8 @@
 echo "== Omadrop environment =="
 root=$(dirname "$(dirname "$(readlink -f "$0")")")
 echo "version     : $(<"$root/VERSION")"
-for c in magick curl pactl pw-record gdbus busctl jq pkg-config; do
+for c in magick curl pactl pw-record gdbus busctl jq pkg-config \
+  ffmpeg ffprobe gpu-screen-recorder; do
   printf '%-12s %s\n' "$c" "$(command -v $c || echo MISSING)"
 done
 echo

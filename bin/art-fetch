@@ -12,11 +12,21 @@ mkdir -p "$cachedir"
 
 # Include the preparation format in the key so upgrades never reuse artwork
 # produced by an older color or exposure pipeline.
-key=$(printf 'original-color-v2:%s' "$url" | sha256sum | cut -c1-16)
+key=$(printf 'original-color-v3-hires:%s' "$url" | sha256sum | cut -c1-16)
 out="$cachedir/art-$key.png"
-[[ -f $out ]] && { echo "$out"; exit 0; }
+lock="$out.lock"
+exec {lock_fd}>"$lock"
+flock "$lock_fd"
+if [[ -s $out ]] && magick identify -quiet "$out" >/dev/null 2>&1; then
+  echo "$out"
+  exit 0
+fi
+rm -f "$out" "$out.pal"
 
-tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
+tmp=$(mktemp "$cachedir/.art-download.XXXXXX")
+prepared=$(mktemp "$cachedir/.art-prepared.XXXXXX.png")
+palette=$(mktemp "$cachedir/.art-palette.XXXXXX")
+trap 'rm -f "$tmp" "$prepared" "$palette"' EXIT
 case "$url" in
   file://*) cp "${url#file://}" "$tmp" ;;
   http://*|https://*) curl -sfL --max-time 10 -o "$tmp" "$url" ;;
@@ -24,12 +34,18 @@ case "$url" in
 esac
 
 [[ -s $tmp ]] || { echo "art-fetch: empty download" >&2; exit 1; }
-"$here/art-prep" "$tmp" "$out" >&2
+"$here/art-prep" "$tmp" "$prepared" >&2
 
 # Dominant colours, for tinting the abstract scenes. Sampling the cover
 # directly drags its imagery into every scene; a palette carries the record's
 # colour with none of its structure.
-magick "$out" -colors 5 -unique-colors -depth 8 txt:- 2>/dev/null \
-  | grep -oE '#[0-9A-Fa-f]{6}' | head -5 > "$out.pal" || true
+magick "$prepared" -colors 5 -unique-colors -depth 8 txt:- 2>/dev/null \
+  | grep -oE '#[0-9A-Fa-f]{6}' | head -5 > "$palette" || true
+
+# Publish a fully decoded image and its palette together. Two monitor
+# renderers may request the same uncached URL at once, so the lock and atomic
+# rename prevent either process from observing a half-written PNG.
+mv "$prepared" "$out"
+mv "$palette" "$out.pal"
 
 echo "$out"

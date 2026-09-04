@@ -3,6 +3,7 @@ set -euo pipefail
 root=$(dirname "$(dirname "$(readlink -f "$0")")")
 runtime_dir=${XDG_RUNTIME_DIR:-/tmp}/omadrop
 pair_state=$runtime_dir/pair-state
+start_gate=$runtime_dir/start-gate
 
 case ${1:-} in
   --version)
@@ -94,11 +95,13 @@ pids=()
 stop_renderers() {
   ((${#pids[@]})) && kill -TERM "${pids[@]}" 2>/dev/null || true
   rm -f "$runtime_dir"/display-*.pid "$runtime_dir"/display-*.state \
-    "$pair_state" "$pair_state.request"
+    "$pair_state" "$pair_state.request" "$pair_state.music" \
+    "$start_gate" "$start_gate".*.ready
 }
 trap stop_renderers TERM INT EXIT
 mkdir -p "$runtime_dir"
-rm -f "$pair_state" "$pair_state.request"
+rm -f "$pair_state" "$pair_state.request" "$pair_state.music" \
+  "$start_gate" "$start_gate".*.ready
 for ((display_index = 0; display_index < display_count; display_index++)); do
   if ((display_index == 0)); then
     pair_role=leader
@@ -106,6 +109,7 @@ for ((display_index = 0; display_index < display_count; display_index++)); do
     pair_role=follower
   fi
   OMADROP_DISPLAY_INDEX=$display_index OMADROP_FULLSCREEN=0 \
+    OMADROP_BORDERLESS=1 OMADROP_START_GATE=$start_gate \
     OMADROP_PAIR_STATE=$pair_state OMADROP_PAIR_ROLE=$pair_role \
     "$root/experiments/projectm-ascii/run-curated.sh" "$@" &
   pids+=("$!")
@@ -117,6 +121,11 @@ done
 if command -v hyprctl >/dev/null && [[ -n ${monitor_names[0]} ]]; then
   for ((display_index = 0; display_index < display_count; display_index++)); do
     pid=${pids[$display_index]}
+    for ((attempt = 0; attempt < 100; attempt++)); do
+      [[ -e $start_gate.$display_index.ready ]] && break
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
     for ((attempt = 0; attempt < 80; attempt++)); do
       if hyprctl clients -j 2>/dev/null | jq -e --argjson pid "$pid" \
         'any(.[]; .pid == $pid)' >/dev/null; then
@@ -145,6 +154,28 @@ if command -v hyprctl >/dev/null && [[ -n ${monitor_names[0]} ]]; then
     done
   done
 fi
+# Every display has now completed artwork discovery, received a quiet first
+# frame, and been placed. Reveal the pair on the same render beat.
+if [[ -n ${OMADROP_RECORD_ARM_FILE:-} && -n ${OMADROP_RECORD_START_FILE:-} ]]; then
+  printf '%s\n' "$$" >"$OMADROP_RECORD_ARM_FILE"
+  for ((attempt = 0; attempt < 400; attempt++)); do
+    [[ -e $OMADROP_RECORD_START_FILE ]] && break
+    renderers_alive=1
+    for pid in "${pids[@]}"; do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        renderers_alive=0
+        break
+      fi
+    done
+    ((renderers_alive)) || break
+    sleep 0.05
+  done
+  [[ -e $OMADROP_RECORD_START_FILE ]] || {
+    echo "omadrop: timed out waiting for the demo recorder" >&2
+    exit 1
+  }
+fi
+touch "$start_gate"
 # The windows are a pair. As soon as either renderer exits, the EXIT trap
 # terminates its sibling and clears their runtime state.
 wait -n "${pids[@]}" || true

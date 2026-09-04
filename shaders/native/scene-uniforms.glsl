@@ -1,0 +1,35 @@
+uniform sampler2D previousFrame;
+uniform sampler2D artworkFrame;
+uniform vec2 resolution;
+uniform float artworkAvailable;
+uniform float artworkAspect;
+uniform vec3 albumColor;
+uniform float bandLevel[6];
+uniform float spectrumLevel[32];
+uniform float flowTime;
+uniform float beatPhase;
+uniform float beatAnticipation;
+uniform float beatPulse;
+uniform float onsetPulse;
+uniform float downbeat;
+uniform float barPhase;
+uniform float phrasePhase;
+uniform float clockConfidence;
+uniform float kick;
+uniform float snare;
+uniform float hat;
+uniform float percussive;
+uniform float harmonic;
+uniform float spectralCentroid;
+uniform float stereoWidth;
+uniform float energyFast;
+uniform float energySlow;
+uniform float energySlope;
+uniform float section;
+uniform float development;
+uniform float drive;
+uniform float peak;
+uniform float release;
+uniform float sceneBeats;
+
+#include "common.glsl"

@@ -59,6 +59,8 @@ remove_bindings() {
 
 remove_bindings
 remove_link "$bin_dir/omadrop"
+remove_link "$bin_dir/omadrop-demo"
+remove_link "$bin_dir/omadrop-demo-record"
 remove_link "$bin_dir/omadrop-doctor"
 if [[ -f $install_root/VERSION && -x $install_root/bin/omadrop ]]; then
   find "$install_root" -depth -delete

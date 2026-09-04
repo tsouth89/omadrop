@@ -1,0 +1,103 @@
+#!/bin/bash
+set -euo pipefail
+
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+renderer="$root/experiments/projectm-ascii/projectm-ascii"
+output=${1:-$root/cache/reactivity-audit}
+
+[[ -x $renderer ]] || {
+  echo "reactivity-audit: build the native experiment first" >&2
+  exit 2
+}
+command -v magick >/dev/null || {
+  echo "reactivity-audit: ImageMagick is required" >&2
+  exit 2
+}
+
+metric() {
+  local input=$1 key=$2
+  awk -v key="$key" '
+    /^roles / {
+      for (field = 2; field <= NF; ++field) {
+        split($field, pair, "=")
+        if (pair[1] == key) { print pair[2]; exit }
+      }
+    }
+  ' <<< "$input"
+}
+
+overall_passed=1
+audit_pair() {
+  local slug=$1 label=$2 classic=$3 reactive=$4 maximum_idle_gain=$5
+  local pair_output="$output/$slug"
+  local classic_metrics reactive_metrics passed role classic_value reactive_value gain minimum
+  local classic_idle reactive_idle idle_gain
+
+  mkdir -p "$pair_output"
+  classic_metrics=$(OMADROP_ROLE_AUDIT=1 "$renderer" "$classic" \
+    "$pair_output/classic-native.ppm" "$pair_output/classic-ascii.ppm")
+  reactive_metrics=$(OMADROP_ROLE_AUDIT=1 "$renderer" "$reactive" \
+    "$pair_output/reactive-native.ppm" "$pair_output/reactive-ascii.ppm")
+  printf '%s\n' "$classic_metrics" > "$pair_output/classic.metrics"
+  printf '%s\n' "$reactive_metrics" > "$pair_output/reactive.metrics"
+
+  printf '\n%s\n' "$label"
+  printf '%-8s %10s %10s %10s\n' role classic reactive gain
+  passed=1
+  for role in kick snare hat; do
+    classic_value=$(metric "$classic_metrics" "${role}_coarse")
+    reactive_value=$(metric "$reactive_metrics" "${role}_coarse")
+    gain=$(awk -v classic="$classic_value" -v reactive="$reactive_value" \
+      'BEGIN { printf "%.2f", reactive / classic }')
+    printf '%-8s %10.2f %10.2f %9sx\n' "$role" "$classic_value" "$reactive_value" "$gain"
+    minimum=4.0
+    [[ $role == hat ]] && minimum=3.5
+    awk -v reactive="$reactive_value" -v gain="$gain" -v minimum="$minimum" \
+      'BEGIN { exit !(reactive >= minimum && gain >= 1.5) }' || passed=0
+  done
+
+  classic_idle=$(metric "$classic_metrics" idle_coarse)
+  reactive_idle=$(metric "$reactive_metrics" idle_coarse)
+  idle_gain=$(awk -v classic="$classic_idle" -v reactive="$reactive_idle" \
+    'BEGIN { printf "%.2f", reactive / classic }')
+  printf '%-8s %10.4f %10.4f %9sx\n' idle "$classic_idle" "$reactive_idle" "$idle_gain"
+  awk -v gain="$idle_gain" -v maximum="$maximum_idle_gain" \
+    'BEGIN { exit !(gain <= maximum) }' || passed=0
+
+  magick montage \
+    -label 'Classic native' "$pair_output/classic-native.ppm" \
+    -label 'Reactive native' "$pair_output/reactive-native.ppm" \
+    -label 'Classic ASCII' "$pair_output/classic-ascii.ppm" \
+    -label 'Reactive ASCII' "$pair_output/reactive-ascii.ppm" \
+    -tile 2x -geometry '640x360+6+24' -background '#0b0d10' \
+    -fill white -font Adwaita-Mono -pointsize 18 "$pair_output/compare.png"
+
+  echo "comparison: $pair_output/compare.png"
+  if ((passed)); then
+    echo "preset audit passed"
+  else
+    echo "preset audit failed" >&2
+    overall_passed=0
+  fi
+}
+
+mkdir -p "$output"
+audit_pair reactive-tunnel 'Contortion: Reactive Tunnel Edition' \
+  "$root/presets/classic/Aderrasi - Contortion (Escher's Tunnel Mix).milk" \
+  "$root/presets/curated/Omadrop + Aderrasi - Contortion (Reactive Tunnel Edition).milk" \
+  1.8
+audit_pair reactive-orbit 'Halls Of Centrifuge: Reactive Orbit Edition' \
+  "$root/presets/classic/Aderrasi - Halls Of Centrifuge.milk" \
+  "$root/presets/curated/Omadrop + Aderrasi - Halls Of Centrifuge (Reactive Orbit Edition).milk" \
+  3.2
+audit_pair reactive-wire 'Wire Dance: Reactive Wire Edition' \
+  "$root/presets/classic/Martin - wire dance.milk" \
+  "$root/presets/curated/Omadrop + Martin - Wire Dance (Reactive Wire Edition).milk" \
+  1.8
+
+if ((overall_passed)); then
+  printf '\nreactivity audit passed\n'
+else
+  printf '\nreactivity audit failed\n' >&2
+  exit 1
+fi

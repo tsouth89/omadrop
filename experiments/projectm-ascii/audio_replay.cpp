@@ -1,4 +1,5 @@
 #include "audio_features.h"
+#include "music_frame.h"
 #include "musical_structure.h"
 
 #include <algorithm>
@@ -40,6 +41,8 @@ int main(int argc, char** argv) {
 
     AudioFeatureBus bus;
     MusicalStructureTracker structureTracker;
+    MusicFrameBuilder musicFrameBuilder;
+    MusicFrame musicFrame;
     std::vector<float> pcm(AudioFeatureBus::hopSize * 2);
     EventSummary kicks;
     EventSummary snares;
@@ -50,12 +53,17 @@ int main(int argc, char** argv) {
     int hatCandidates = 0;
     int relaxedSnareCandidates = 0;
     int relaxedHatCandidates = 0;
+    int kickSnareOverlaps = 0;
+    int kickHatOverlaps = 0;
+    int snareHatOverlaps = 0;
     int phrases = 0;
     int sections = 0;
     while (input.read(reinterpret_cast<char*>(pcm.data()),
                       static_cast<std::streamsize>(pcm.size() * sizeof(float)))) {
         latest = bus.processStereo(pcm.data(), AudioFeatureBus::hopSize);
         const MusicalStructureState& structure = structureTracker.update(latest);
+        musicFrame = musicFrameBuilder.update(
+            latest, structure, 1.0f / 60.0f);
         if (structure.barAnalyzed) {
             const double eventSeconds = hops * AudioFeatureBus::hopSize
                                       / static_cast<double>(AudioFeatureBus::sampleRate);
@@ -79,6 +87,9 @@ int main(int argc, char** argv) {
         kicks.add(latest.kick, latest.kickImpact);
         snares.add(latest.snare, latest.snareImpact);
         hats.add(latest.hat, latest.hatImpact);
+        kickSnareOverlaps += latest.kick && latest.snare;
+        kickHatOverlaps += latest.kick && latest.hat;
+        snareHatOverlaps += latest.snare && latest.hat;
         const float snareFlux = 0.25f * latest.flux[2] + 0.35f * latest.flux[3]
                               + 0.40f * latest.flux[4];
         snareCandidates += snareFlux > 2.15f
@@ -111,6 +122,13 @@ int main(int argc, char** argv) {
               << "/" << relaxedHatCandidates << ")"
               << " | bpm=" << latest.bpm
               << " confidence=" << latest.beatConfidence
+              << " audio_time=" << musicFrame.audioTimeSeconds
+              << " percussive=" << musicFrame.percussive
+              << " harmonic=" << musicFrame.harmonic
+              << " centroid=" << musicFrame.spectralCentroid
+              << " stereo_width=" << musicFrame.stereoWidth
+              << " overlaps=" << kickSnareOverlaps << "/"
+              << kickHatOverlaps << "/" << snareHatOverlaps
               << " phrases=" << phrases
               << " sections=" << sections << "\n";
 }

@@ -33,19 +33,19 @@ struct PresetProfile {
     float hatGain;
 };
 
-inline constexpr std::array<PresetProfile, 16> presetProfiles{{
-    {"Aderrasi - Contortion (Escher's Tunnel Mix).milk",
+inline constexpr std::array<PresetProfile, 11> presetProfiles{{
+    {"Omadrop + Aderrasi - Contortion (Reactive Tunnel Edition).milk",
      VisualFamily::DepthCorridor, BridgeGroup::Spatial,
      PresetDirection::Inward, PresetEnergy::Driving,
-     10000, 14000, 0.46f, 1.16f, 1.00f, 0.82f, 0.56f},
-    {"Martin - wire dance.milk",
+     12000, 18000, 0.46f, 1.22f, 1.08f, 0.92f, 0.72f},
+    {"Omadrop + Martin - Wire Dance (Reactive Wire Edition).milk",
      VisualFamily::MultipoleWire, BridgeGroup::Organic,
      PresetDirection::Orbit, PresetEnergy::Driving,
-     10000, 14000, 0.50f, 0.88f, 1.16f, 0.96f, 0.74f},
-    {"Aderrasi - Halls Of Centrifuge.milk",
+     12000, 18000, 0.50f, 0.92f, 1.10f, 1.02f, 0.86f},
+    {"Omadrop + Aderrasi - Halls Of Centrifuge (Reactive Orbit Edition).milk",
      VisualFamily::RadialOrnament, BridgeGroup::Spatial,
      PresetDirection::Orbit, PresetEnergy::Driving,
-     9000, 12000, 0.48f, 1.42f, 1.22f, 0.88f, 0.62f},
+     12000, 18000, 0.48f, 1.38f, 1.16f, 1.04f, 0.88f},
     {"martin - night cathedral.milk",
      VisualFamily::InterferencePlanes, BridgeGroup::Linework,
      PresetDirection::Inward, PresetEnergy::Medium,
@@ -74,30 +74,10 @@ inline constexpr std::array<PresetProfile, 16> presetProfiles{{
      VisualFamily::RadialOrnament, BridgeGroup::Spatial,
      PresetDirection::Orbit, PresetEnergy::Driving,
      10000, 14000, 0.50f, 1.08f, 1.10f, 0.90f, 0.78f},
-    {"shifter - mandala.milk",
-     VisualFamily::RadialOrnament, BridgeGroup::Spatial,
-     PresetDirection::Orbit, PresetEnergy::Medium,
-     11000, 15000, 0.48f, 1.16f, 1.00f, 0.96f, 0.82f},
-    {"Geiss - Myriad Mosaics.milk",
-     VisualFamily::RadialOrnament, BridgeGroup::Spatial,
-     PresetDirection::Orbit, PresetEnergy::Driving,
-     10000, 14000, 0.54f, 0.92f, 1.06f, 0.92f, 0.74f},
-    {"EoS + Phat - cubetrace - v2.milk",
-     VisualFamily::CrystalLattice, BridgeGroup::Linework,
-     PresetDirection::Orbit, PresetEnergy::Calm,
-     12000, 16000, 0.46f, 1.24f, 0.90f, 0.94f, 0.82f},
     {"Krash & Rovastar - Cerebral Demons - Phat + EoS Moire Remix.milk",
      VisualFamily::InterferencePlanes, BridgeGroup::Linework,
      PresetDirection::Oscillate, PresetEnergy::Medium,
      11000, 15000, 0.48f, 1.12f, 0.96f, 1.04f, 0.80f},
-    {"The NG + Geiss + Flexi - The Waterfowl In The Rain.milk",
-     VisualFamily::InterferencePlanes, BridgeGroup::Linework,
-     PresetDirection::Inward, PresetEnergy::Calm,
-     12000, 16000, 0.48f, 1.12f, 0.90f, 0.98f, 0.76f},
-    {"Phat+fiShbRaiN+EoS_Mandala_Chasers_remix.milk",
-     VisualFamily::MultipoleWire, BridgeGroup::Organic,
-     PresetDirection::Oscillate, PresetEnergy::Medium,
-     11000, 15000, 0.50f, 1.02f, 1.08f, 1.00f, 0.82f},
 }};
 
 inline std::string_view presetBasename(std::string_view path) {
@@ -107,6 +87,15 @@ inline std::string_view presetBasename(std::string_view path) {
 
 inline const PresetProfile* findProfileForPreset(std::string_view path) {
     const std::string_view filename = presetBasename(path);
+    if (filename == "Aderrasi - Contortion (Escher's Tunnel Mix).milk") {
+        return &presetProfiles.front();
+    }
+    if (filename == "Aderrasi - Halls Of Centrifuge.milk") {
+        return &presetProfiles[2];
+    }
+    if (filename == "Martin - wire dance.milk") {
+        return &presetProfiles[1];
+    }
     for (const auto& profile : presetProfiles) {
         if (filename == profile.filename) return &profile;
     }

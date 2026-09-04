@@ -16,6 +16,7 @@
 #include <fstream>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <regex>
 #include <random>
@@ -31,7 +32,10 @@
 #include "audio_queue.h"
 #include "mpris_state.h"
 #include "musical_structure.h"
+#include "music_frame.h"
+#include "native_renderer.h"
 #include "paired_display.h"
+#include "paired_music_state.h"
 #include "preset_adapters.h"
 #include "preset_profiles.h"
 #include "preset_selector.h"
@@ -84,6 +88,9 @@ uniform int nextReactionMode;
 uniform vec3 sourceReactionGain;
 uniform vec3 nextReactionGain;
 uniform float asciiExposure;
+uniform float fieldExposure;
+uniform int nativeRenderer;
+uniform float visibility;
 
 float luminance(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
@@ -142,6 +149,12 @@ vec3 sceneSample(vec2 sampleUv) {
     float bridge = sin(3.14159265 * easedPresetMix);
     vec2 outgoingUv = (sampleUv - 0.5) * (1.0 - 0.025 * bridge) + 0.5;
     vec2 incomingUv = (sampleUv - 0.5) * (1.025 - 0.025 * easedPresetMix) + 0.5;
+    if (transitionMode == 6) {
+        // Native scenes share a stable center landmark. Keep it registered
+        // while the outer fields exchange in broad connected bands.
+        outgoingUv = sampleUv;
+        incomingUv = sampleUv;
+    }
     outgoingUv = reactedUv(outgoingUv, sourceReactionMode, sourceReactionGain);
     incomingUv = reactedUv(incomingUv, nextReactionMode, nextReactionGain);
     vec3 outgoing = texture(sourceFrame, outgoingUv).rgb;
@@ -151,7 +164,12 @@ vec3 sceneSample(vec2 sampleUv) {
     // connected flow bands let its geometry form inside the outgoing feedback
     // while a temporary luminance match prevents a sudden palette block.
     float flow;
-    if (transitionMode == 0) {
+    if (transitionMode == 6) {
+        float radius = length(sampleUv - 0.5);
+        flow = 0.50 + 0.15 * sin(sampleUv.y * 9.0
+                               + sin(sampleUv.x * 6.0) * 1.4)
+                    + 0.08 * smoothstep(0.08, 0.72, radius);
+    } else if (transitionMode == 0) {
         float radius = length(sampleUv - 0.5);
         flow = 0.38 + radius * 0.42 + 0.09 * sin(radius * 35.0);
     } else if (transitionMode == 1) {
@@ -165,16 +183,30 @@ vec3 sceneSample(vec2 sampleUv) {
                          + 0.07 * sin(sampleUv.y * 29.0 - sampleUv.x * 7.0);
     }
     float localMix = smoothstep(flow - 0.46, flow + 0.46, easedPresetMix);
+    float nativeAnchor = 0.0;
+    if (transitionMode == 6) {
+        float radius = length(sampleUv - 0.5);
+        nativeAnchor = 1.0 - smoothstep(0.07, 0.30, radius);
+        localMix = mix(localMix, easedPresetMix, nativeAnchor);
+    }
     float outgoingLight = luminance(outgoing);
     float incomingLight = max(0.08, luminance(incoming));
     vec3 matchedIncoming = incoming * clamp((0.35 + outgoingLight * 0.9) / incomingLight,
                                              0.55, 1.35);
     incoming = mix(incoming, matchedIncoming, (1.0 - easedPresetMix) * 0.42);
     vec3 visual = mix(outgoing, incoming, localMix);
+    if (transitionMode == 6) {
+        visual += max(outgoing, incoming) * nativeAnchor * bridge * 0.12;
+    }
     float visualLight = luminance(visual);
     vec3 albumGrade = visual * mix(vec3(1.0), albumColor * 1.65, 0.58)
                     + albumColor * visualLight * 0.16;
     visual = mix(visual, albumGrade, paletteInfluence);
+    if (nativeRenderer != 0) {
+        visual = visual / (vec3(1.0) + visual * 0.85);
+        float nativeLight = luminance(visual);
+        visual = clamp(mix(vec3(nativeLight), visual, 1.34), 0.0, 1.0);
+    }
     if (coverMix <= 0.0) return visual;
     vec2 p = coverSampleUv - 0.5;
     float screenAspect = resolution.x / resolution.y;
@@ -198,9 +230,13 @@ vec3 sceneSample(vec2 sampleUv) {
 
 void main() {
     if (asciiEnabled == 0) {
-        color = vec4(sceneSample(uv), 1.0);
+        color = vec4(sceneSample(uv) * fieldExposure * visibility, 1.0);
         return;
     }
+    // ASCII mode keeps its identity on the cover, but starts from the same
+    // full-resolution source used by continuous mode. A sharp image underlay
+    // carries typography, faces, and fine illustration beneath the dots.
+    vec3 cleanSource = sceneSample(uv);
     vec2 pixel = uv * resolution;
     // Deliberately coarse 2x4 braille cells. The earlier 6x12 grid preserved
     // so much source detail that it read as a slightly dotted normal image.
@@ -222,21 +258,21 @@ void main() {
     // and fine texture while the braille field remains the dominant material.
     // It disappears early in the cover dissolve, so presets stay pure ASCII.
     float underlayMix = smoothstep(0.62, 0.96, coverMix);
-    vec3 underlaySource = sceneSample(uv);
+    vec3 underlaySource = cleanSource;
     float underlayLight = luminance(underlaySource);
     float underlayTarget = pow(clamp(underlayLight, 0.0, 1.0), 0.88);
     float underlayMaximum = max(underlaySource.r,
                                 max(underlaySource.g, underlaySource.b));
     float underlayLift = min(underlayTarget / max(0.01, underlayLight),
                              0.98 / max(0.01, underlayMaximum));
-    vec3 coverUnderlay = underlaySource * underlayLift * 0.38 * underlayMix;
+    vec3 coverUnderlay = underlaySource * underlayLift * 0.70 * underlayMix;
     float glyphRadius = min(3.05, 1.90 + visualReaction
                           * (0.52 * bassImpact + 0.70 * kickAccent
                              + 0.09 * midImpact));
     float glyphMask = 1.0 - smoothstep(glyphRadius - 0.48, glyphRadius + 0.48,
                                       glyphDistance);
     if (glyphMask <= 0.01) {
-        color = vec4(coverUnderlay, 1.0); return;
+        color = vec4(coverUnderlay * visibility, 1.0); return;
     }
 
     vec2 dotOrigin = cell * cellSize + vec2(float(dx) * 6.0, float(dy) * 6.0);
@@ -293,7 +329,9 @@ void main() {
     float activeThreshold = threshold[dy * 2 + dx] - visualReaction
                           * (0.055 * bassImpact + 0.060 * kickAccent
                              + 0.025 * trebleLevel + 0.045 * trebleImpact);
-    if (level < activeThreshold) { color = vec4(coverUnderlay, 1.0); return; }
+    if (level < activeThreshold) {
+        color = vec4(coverUnderlay * visibility, 1.0); return;
+    }
     vec3 energized = mix(sourceColor, sourceColor * sourceColor * 1.12,
                          0.16 * bassImpact * (1.0 - coverColorLock));
     float grey = luminance(energized);
@@ -307,7 +345,9 @@ void main() {
     float outputScale = mix(visualLightResponse, 1.0, coverColorLock);
     vec3 dotColor = energized * outputScale * materialExposure;
     float dotOpacity = mix(1.0, 0.78, coverColorLock);
-    color = vec4(mix(coverUnderlay, dotColor, glyphMask * dotOpacity), 1.0);
+    vec3 asciiMaterial = mix(coverUnderlay, dotColor,
+                             glyphMask * dotOpacity);
+    color = vec4(asciiMaterial * visibility, 1.0);
 }
 )GLSL";
 
@@ -374,7 +414,8 @@ bool loadPngTexture(const std::string& filename, GLuint texture, float& aspect) 
     glBindTexture(GL_TEXTURE_2D, texture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, static_cast<GLsizei>(image.width),
                  static_cast<GLsizei>(image.height), 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -434,6 +475,28 @@ std::filesystem::path legacySyncSettingsPath() {
     return directory.empty() ? directory : directory / "sync-ms";
 }
 
+std::filesystem::path asciiSettingsPath() {
+    const auto directory = configDirectory();
+    return directory.empty() ? directory : directory / "ascii-enabled";
+}
+
+bool loadAsciiEnabled() {
+    std::ifstream input(asciiSettingsPath());
+    int enabled = 1;
+    if (input >> enabled) return enabled != 0;
+    return true;
+}
+
+void saveAsciiEnabled(bool enabled) {
+    const auto path = asciiSettingsPath();
+    if (path.empty()) return;
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) return;
+    std::ofstream output(path, std::ios::trunc);
+    if (output) output << (enabled ? 1 : 0) << "\n";
+}
+
 void saveSyncDelay(unsigned int milliseconds, const std::string& sink) {
     const auto path = syncSettingsPath(sink);
     if (path.empty()) return;
@@ -443,12 +506,120 @@ void saveSyncDelay(unsigned int milliseconds, const std::string& sink) {
     std::ofstream output(path);
     if (output) output << milliseconds << "\n";
 }
+
+unsigned int loadSyncDelay(const std::string& sink) {
+    if (const char* configuredDelay = std::getenv("OMADROP_SYNC_MS")) {
+        return static_cast<unsigned int>(
+            std::clamp(std::atoi(configuredDelay), 0, 500));
+    }
+    unsigned int milliseconds = sink.rfind("bluez_", 0) == 0 ? 180u : 35u;
+    const auto sinkSettings = syncSettingsPath(sink);
+    std::ifstream savedDelay(sinkSettings);
+    bool migrateLegacyDelay = false;
+    if (!savedDelay && !std::filesystem::exists(sinkSettings.parent_path())) {
+        savedDelay.clear();
+        savedDelay.open(legacySyncSettingsPath());
+        migrateLegacyDelay = static_cast<bool>(savedDelay);
+    }
+    int savedMilliseconds = 0;
+    if (savedDelay >> savedMilliseconds) {
+        milliseconds = static_cast<unsigned int>(
+            std::clamp(savedMilliseconds, 0, 500));
+        if (migrateLegacyDelay) saveSyncDelay(milliseconds, sink);
+    }
+    return milliseconds;
+}
+
+std::string defaultSinkName() {
+    if (const char* testPath = std::getenv("OMADROP_TEST_SINK_PATH")) {
+        std::ifstream input(testPath);
+        std::string sink;
+        if (std::getline(input, sink)) return sink;
+    }
+    return commandOutput("pactl get-default-sink");
+}
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::cerr << "usage: projectm-ascii-live PRESET.milk [PRESET.milk ...]\n";
         return 2;
+    }
+    const std::filesystem::path projectRoot
+        = std::filesystem::canonical(argv[0]).parent_path() / ".." / "..";
+    const std::string rendererName = std::getenv("OMADROP_ENGINE")
+        ? std::getenv("OMADROP_ENGINE") : "native";
+    if (rendererName != "native" && rendererName != "projectm") {
+        std::cerr << "renderer: unknown OMADROP_ENGINE value '"
+                  << rendererName << "'\n";
+        return 2;
+    }
+    const bool nativeEnabled = rendererName == "native";
+    bool asciiEnabled = std::getenv("OMADROP_ASCII")
+        ? std::string(std::getenv("OMADROP_ASCII")) != "0"
+        : loadAsciiEnabled();
+    unsigned int syncDelayMs = 0;
+    bool closeRequested = false;
+    std::optional<NativeSceneKind> selectedNativeScene;
+    std::vector<NativeSceneKind> scriptedScenes;
+    float scriptedSceneDwellSeconds = 5.0f;
+    float scriptedSceneMaximumSeconds = 7.0f;
+    float scriptedTransitionSeconds = 2.0f;
+    bool scriptedSequenceOnce = false;
+    if (nativeEnabled) {
+        if (const char* requestedScene = std::getenv("OMADROP_NATIVE_SCENE")) {
+            NativeSceneKind selectedScene;
+            if (!nativeSceneFromName(requestedScene, selectedScene)) {
+                std::cerr << "native scene: unknown OMADROP_NATIVE_SCENE value '"
+                          << requestedScene << "'\n";
+                return 2;
+            }
+            selectedNativeScene = selectedScene;
+        }
+        if (const char* requestedSequence
+            = std::getenv("OMADROP_NATIVE_SEQUENCE")) {
+            std::istringstream input(requestedSequence);
+            std::string name;
+            while (std::getline(input, name, ',')) {
+                name.erase(name.begin(), std::find_if(name.begin(), name.end(),
+                    [](unsigned char character) { return !std::isspace(character); }));
+                name.erase(std::find_if(name.rbegin(), name.rend(),
+                    [](unsigned char character) { return !std::isspace(character); }).base(),
+                    name.end());
+                NativeSceneKind scene;
+                if (name.empty() || !nativeSceneFromName(name, scene)) {
+                    std::cerr << "native sequence: unknown scene '" << name << "'\n";
+                    return 2;
+                }
+                if (scriptedScenes.empty() || scriptedScenes.back() != scene) {
+                    scriptedScenes.push_back(scene);
+                }
+            }
+            if (scriptedScenes.size() < 2) {
+                std::cerr << "native sequence: provide at least two distinct scenes\n";
+                return 2;
+            }
+            selectedNativeScene = scriptedScenes.front();
+            if (const char* dwell = std::getenv("OMADROP_NATIVE_SEQUENCE_SECONDS")) {
+                scriptedSceneDwellSeconds = std::clamp(
+                    std::strtof(dwell, nullptr), 1.0f, 30.0f);
+            }
+            scriptedSceneMaximumSeconds = scriptedSceneDwellSeconds + 2.0f;
+            if (const char* maximum
+                = std::getenv("OMADROP_NATIVE_SEQUENCE_MAX_SECONDS")) {
+                scriptedSceneMaximumSeconds = std::clamp(
+                    std::strtof(maximum, nullptr),
+                    scriptedSceneDwellSeconds, 32.0f);
+            }
+            if (const char* duration
+                = std::getenv("OMADROP_NATIVE_TRANSITION_SECONDS")) {
+                scriptedTransitionSeconds = std::clamp(
+                    std::strtof(duration, nullptr), 0.6f, 8.0f);
+            }
+            scriptedSequenceOnce
+                = std::getenv("OMADROP_NATIVE_SEQUENCE_ONCE")
+               && std::string(std::getenv("OMADROP_NATIVE_SEQUENCE_ONCE")) != "0";
+        }
     }
     std::optional<StructureTimeline> timeline;
     if (const char* timelinePath = std::getenv("OMADROP_TIMELINE_PATH")) {
@@ -473,6 +644,10 @@ int main(int argc, char** argv) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;
+    if (const char* borderless = std::getenv("OMADROP_BORDERLESS");
+        borderless && std::string(borderless) != "0") {
+        windowFlags |= SDL_WINDOW_BORDERLESS;
+    }
     if (const char* fullscreen = std::getenv("OMADROP_FULLSCREEN");
         fullscreen && std::string(fullscreen) != "0") {
         windowFlags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
@@ -522,6 +697,16 @@ int main(int argc, char** argv) {
     glLinkProgram(program);
     GLuint vao = 0;
     glGenVertexArrays(1, &vao);
+    std::unique_ptr<NativeRenderer> nativeRenderer;
+    if (nativeEnabled) {
+        nativeRenderer = std::make_unique<NativeRenderer>();
+        std::string error;
+        if (!nativeRenderer->initialize(projectRoot / "shaders" / "native", error)) {
+            std::cerr << "native renderer: " << error << "\n";
+            return 1;
+        }
+        std::cerr << "renderer: Omadrop native scenes\n";
+    }
 
     const char* texturePaths[] = {"/usr/share/projectM/textures", "/usr/share/projectM/presets"};
     std::array<projectm_handle, 2> engines{projectm_create(), projectm_create()};
@@ -551,13 +736,22 @@ int main(int argc, char** argv) {
         ? std::getenv("OMADROP_PAIR_ROLE") : "";
     const bool pairedLeader = !pairedStatePath.empty() && pairedRole == "leader";
     const bool pairedFollower = !pairedStatePath.empty() && pairedRole == "follower";
+    bool fullscreenEnabled
+        = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0
+       || pairedLeader || pairedFollower;
     const std::filesystem::path pairedRequestPath = pairedStatePath.empty()
         ? std::filesystem::path{}
         : std::filesystem::path(pairedStatePath.string() + ".request");
+    const std::filesystem::path pairedMusicPath = pairedStatePath.empty()
+        ? std::filesystem::path{}
+        : std::filesystem::path(pairedStatePath.string() + ".music");
     std::uint64_t pairedSerial = 0;
+    std::uint64_t pairedMusicSerial = 0;
     PairedDisplayFollower pairedDisplayFollower;
+    PairedMusicFollower pairedMusicFollower;
     auto publishPairedState = [&](std::size_t index, std::uint64_t duration,
-                                  int mode, bool hardSync) {
+                                  int mode, bool hardSync, int nativeScene = -1,
+                                  int nativeSourceScene = -1) {
         if (!pairedLeader) return;
         const std::filesystem::path temporary = pairedStatePath.string()
             + "." + std::to_string(getpid()) + ".tmp";
@@ -568,10 +762,32 @@ int main(int argc, char** argv) {
             .durationMs = duration,
             .transitionMode = mode,
             .hardSync = hardSync,
+            .nativeScene = nativeScene,
+            .nativeSourceScene = nativeSourceScene,
+            .asciiMode = asciiEnabled ? 1 : 0,
+            .fullscreenMode = fullscreenEnabled ? 1 : 0,
+            .syncDelayMs = static_cast<int>(syncDelayMs),
+            .closeMode = closeRequested ? 1 : 0,
         });
         output.close();
         std::error_code error;
         std::filesystem::rename(temporary, pairedStatePath, error);
+        if (error) std::filesystem::remove(temporary, error);
+    };
+    auto publishPairedMusic = [&](const MusicFrame& frame) {
+        if (!pairedLeader) return;
+        const PairedMusicState state{
+            .serial = ++pairedMusicSerial,
+            .frame = frame,
+        };
+        const std::string encoded = encodePairedMusicState(state);
+        const std::filesystem::path temporary = pairedMusicPath.string()
+            + "." + std::to_string(getpid()) + ".tmp";
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        output.write(encoded.data(), static_cast<std::streamsize>(encoded.size()));
+        output.close();
+        std::error_code error;
+        std::filesystem::rename(temporary, pairedMusicPath, error);
         if (error) std::filesystem::remove(temporary, error);
     };
     std::uniform_int_distribution<std::size_t> openingPreset(0, presets.size() - 1);
@@ -606,55 +822,58 @@ int main(int argc, char** argv) {
     uint64_t transitionWindowAt = SDL_GetTicks64() + 9000;
     uint64_t transitionDeadlineAt = SDL_GetTicks64() + 13000;
 
-    std::string sink = commandOutput("pactl get-default-sink");
-    unsigned int syncDelayMs = sink.rfind("bluez_", 0) == 0 ? 180u : 35u;
-    if (const char* configuredDelay = std::getenv("OMADROP_SYNC_MS")) {
-        syncDelayMs = static_cast<unsigned int>(std::clamp(std::atoi(configuredDelay), 0, 500));
-    } else {
-        const auto sinkSettings = syncSettingsPath(sink);
-        std::ifstream savedDelay(sinkSettings);
-        bool migrateLegacyDelay = false;
-        if (!savedDelay && !std::filesystem::exists(sinkSettings.parent_path())) {
-            savedDelay.clear();
-            savedDelay.open(legacySyncSettingsPath());
-            migrateLegacyDelay = static_cast<bool>(savedDelay);
-        }
-        int milliseconds = 0;
-        if (savedDelay >> milliseconds) {
-            syncDelayMs = static_cast<unsigned int>(std::clamp(milliseconds, 0, 500));
-            if (migrateLegacyDelay) saveSyncDelay(syncDelayMs, sink);
-        }
-    }
+    std::string sink = defaultSinkName();
+    syncDelayMs = loadSyncDelay(sink);
     std::deque<float> delayedPcm;
     std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
-    int audioPipe[2];
-    if (pipe2(audioPipe, O_CLOEXEC) != 0) return 1;
-    const pid_t audioPid = fork();
-    if (audioPid == 0) {
-        dup2(audioPipe[1], STDOUT_FILENO);
-        const int nullFd = open("/dev/null", O_WRONLY);
-        if (nullFd >= 0) dup2(nullFd, STDERR_FILENO);
-        close(audioPipe[0]);
-        close(audioPipe[1]);
-        if (sink.empty()) {
-            execlp("pw-record", "pw-record", "--raw", "--rate", "44100",
-                   "--channels", "2", "--format", "f32", "--latency", "20ms",
-                   "-P", "{ stream.capture.sink=true }", "-", static_cast<char*>(nullptr));
-        } else {
-            execlp("pw-record", "pw-record", "--raw", "--rate", "44100",
-                   "--channels", "2", "--format", "f32", "--latency", "20ms",
-                   "-P", "{ stream.capture.sink=true }", "--target", sink.c_str(), "-",
-                   static_cast<char*>(nullptr));
+    publishPairedState(presetIndex, 0, 0, true);
+    pid_t audioPid = -1;
+    int audioFd = -1;
+    auto stopAudioCapture = [&]() {
+        if (audioPid > 0) {
+            kill(audioPid, SIGTERM);
+            waitpid(audioPid, nullptr, 0);
+            audioPid = -1;
         }
-        _exit(127);
-    }
-    close(audioPipe[1]);
-    if (audioPid < 0) {
-        close(audioPipe[0]);
-        return 1;
-    }
-    const int audioFd = audioPipe[0];
-    fcntl(audioFd, F_SETFL, fcntl(audioFd, F_GETFL) | O_NONBLOCK);
+        if (audioFd >= 0) {
+            close(audioFd);
+            audioFd = -1;
+        }
+    };
+    auto startAudioCapture = [&](const std::string& targetSink) {
+        int audioPipe[2];
+        if (pipe2(audioPipe, O_CLOEXEC) != 0) return false;
+        const pid_t child = fork();
+        if (child == 0) {
+            dup2(audioPipe[1], STDOUT_FILENO);
+            const int nullFd = open("/dev/null", O_WRONLY);
+            if (nullFd >= 0) dup2(nullFd, STDERR_FILENO);
+            close(audioPipe[0]);
+            close(audioPipe[1]);
+            if (targetSink.empty()) {
+                execlp("pw-record", "pw-record", "--raw", "--rate", "44100",
+                       "--channels", "2", "--format", "f32", "--latency", "20ms",
+                       "-P", "{ stream.capture.sink=true }", "-",
+                       static_cast<char*>(nullptr));
+            } else {
+                execlp("pw-record", "pw-record", "--raw", "--rate", "44100",
+                       "--channels", "2", "--format", "f32", "--latency", "20ms",
+                       "-P", "{ stream.capture.sink=true }", "--target",
+                       targetSink.c_str(), "-", static_cast<char*>(nullptr));
+            }
+            _exit(127);
+        }
+        close(audioPipe[1]);
+        if (child < 0) {
+            close(audioPipe[0]);
+            return false;
+        }
+        audioPid = child;
+        audioFd = audioPipe[0];
+        fcntl(audioFd, F_SETFL, fcntl(audioFd, F_GETFL) | O_NONBLOCK);
+        return true;
+    };
+    if (!startAudioCapture(sink)) return 1;
     std::vector<float> pcm(4096 * 2);
     std::vector<float> visualPcm(4096 * 2);
     const unsigned int projectmSampleLimit = projectm_pcm_get_max_samples();
@@ -666,12 +885,44 @@ int main(int argc, char** argv) {
     const bool syntheticAudio = std::getenv("OMADROP_SYNTHETIC_AUDIO") != nullptr;
     bool lastFallback = false;
     bool reportedAudioMode = false;
+    bool reportedPairedMusic = false;
     uint64_t discardedAudioFrames = 0;
     uint64_t lastNonSilentAudioAt = SDL_GetTicks64();
     uint64_t previousFrameAt = SDL_GetTicks64();
     AudioFeatureBus featureBus;
     AudioFeatures audioFeatures;
     MusicalStructureTracker structureTracker;
+    MusicFrameBuilder musicFrameBuilder;
+    MusicFrame musicFrame;
+    NativeSceneDirector nativeSceneDirector;
+    NativeSceneState nativeSceneState;
+    bool nativeTransitionWasActive = false;
+    NativeSceneKind initialNativeScene = NativeSceneKind::DepthTunnel;
+    if (nativeEnabled) {
+        if (selectedNativeScene) {
+            initialNativeScene = *selectedNativeScene;
+        } else {
+            std::uniform_int_distribution<int> openingNativeScene(
+                0, static_cast<int>(nativeSceneCount) - 1);
+            initialNativeScene = static_cast<NativeSceneKind>(
+                openingNativeScene(randomEngine));
+        }
+        nativeSceneDirector.selectScene(initialNativeScene);
+        if (!scriptedScenes.empty()) {
+            nativeSceneDirector.setTransitionDuration(scriptedTransitionSeconds);
+        }
+        std::cerr << "native scene: " << nativeSceneName(initialNativeScene)
+                  << (!scriptedScenes.empty() ? " (scripted opening)"
+                      : selectedNativeScene ? " (selected)"
+                      : " (random opening)")
+                  << "\n";
+        publishPairedState(presetIndex, 0, 6, true,
+                           static_cast<int>(initialNativeScene),
+                           static_cast<int>(initialNativeScene));
+    }
+    std::size_t scriptedSceneIndex = 0;
+    uint64_t scriptedSceneSettledAt = 0;
+    float scriptedPreviousBarPhase = 0.0f;
     bool structureClockLocked = false;
     float bassImpact = 0.0f;
     float midImpact = 0.0f;
@@ -687,12 +938,20 @@ int main(int argc, char** argv) {
     bool hasCover = false;
     std::string currentArtPath;
     uint64_t coverStartedAt = 0;
+    const float coverHoldSeconds = std::getenv("OMADROP_COVER_HOLD_SECONDS")
+        ? std::clamp(std::strtof(
+            std::getenv("OMADROP_COVER_HOLD_SECONDS"), nullptr), 0.0f, 20.0f)
+        : 5.0f;
+    const float coverDissolveSeconds = std::getenv("OMADROP_COVER_DISSOLVE_SECONDS")
+        ? std::clamp(std::strtof(
+            std::getenv("OMADROP_COVER_DISSOLVE_SECONDS"), nullptr), 0.5f, 20.0f)
+        : 5.0f;
     uint64_t nextMprisPollAt = 0;
-    const std::filesystem::path mprisHelper = std::filesystem::canonical(argv[0]).parent_path()
-        / ".." / ".." / "bin" / "mpris-state";
+    const std::filesystem::path mprisHelper = projectRoot / "bin" / "mpris-state";
     pid_t mprisHelperPid = -1;
     int mprisHelperFd = -1;
     std::string mprisHelperOutput;
+    uint64_t mprisPollStartedAt = 0;
     PlaybackClock playbackClock;
     bool timelineMismatchReported = false;
     uint64_t timelineClockStartedAt = SDL_GetTicks64();
@@ -734,16 +993,38 @@ int main(int argc, char** argv) {
         mprisHelperPid = pid;
         mprisHelperFd = pipeFds[0];
         mprisHelperOutput.clear();
+        mprisPollStartedAt = SDL_GetTicks64();
     };
 
     bool running = true;
-    bool asciiEnabled = true;
     bool windowShown = false;
+    const std::filesystem::path startGatePath = std::getenv("OMADROP_START_GATE")
+        ? std::getenv("OMADROP_START_GATE") : "";
+    const std::filesystem::path startReadyPath = startGatePath.empty()
+        ? std::filesystem::path{}
+        : std::filesystem::path(startGatePath.string() + "."
+            + std::to_string(displayIndex) + ".ready");
+    const std::filesystem::path recordStopPath
+        = std::getenv("OMADROP_RECORD_STOP_FILE")
+        ? std::getenv("OMADROP_RECORD_STOP_FILE") : "";
+    const uint64_t closeDurationMs = recordStopPath.empty() ? 420u : 920u;
+    bool recordStopSignaled = false;
+    const auto signalRecordingMarker = [](const std::filesystem::path& path) {
+        if (path.empty()) return;
+        std::ofstream marker(path, std::ios::trunc);
+        if (marker) marker << getpid() << '\n';
+    };
+    bool startGateOpened = startGatePath.empty();
+    uint64_t revealStartedAt = 0;
+    bool closing = false;
+    uint64_t closeStartedAt = 0;
     const std::string forcedCoverPath = std::getenv("OMADROP_COVER_PATH")
         ? std::getenv("OMADROP_COVER_PATH") : "";
     const bool disableArt = std::getenv("OMADROP_DISABLE_ART") != nullptr
                          || !forcedCoverPath.empty();
     bool artLookupComplete = disableArt;
+    const uint64_t initialArtDeadlineAt = SDL_GetTicks64() + 4500;
+    bool suppressLateInitialCover = false;
     if (!forcedCoverPath.empty()
         && loadPngTexture(forcedCoverPath, coverTexture, coverAspect)) {
         currentArtPath = forcedCoverPath;
@@ -760,10 +1041,13 @@ int main(int argc, char** argv) {
     uint64_t automaticNextAt = std::getenv("OMADROP_AUTO_NEXT_MS")
         ? SDL_GetTicks64() + static_cast<uint64_t>(std::max(0, std::atoi(std::getenv("OMADROP_AUTO_NEXT_MS"))))
         : 0;
+    uint64_t nextSinkPollAt = SDL_GetTicks64() + 2000;
     using FrameClock = std::chrono::steady_clock;
     constexpr auto frameInterval = std::chrono::nanoseconds(1000000000 / 60);
     auto nextFrame = FrameClock::now() + frameInterval;
-    while (running && !stopRequested) {
+    while (running) {
+        const uint64_t now = SDL_GetTicks64();
+        if (stopRequested) closeRequested = true;
         bool skipPreset = false;
         bool previousPreset = false;
         bool bassHitThisFrame = false;
@@ -772,36 +1056,68 @@ int main(int argc, char** argv) {
         float structureNovelty = 0.0f;
         int structureMotifIdentity = -1;
         bool structureMotifRecalled = false;
+        bool pairedControlsChanged = false;
+        std::string pairedControlRequest;
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_KEYDOWN && event.key.repeat != 0) continue;
             if (event.type == SDL_QUIT ||
-                (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)) running = false;
+                (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)) {
+                if (pairedFollower) pairedControlRequest = "quit";
+                else {
+                    closeRequested = true;
+                    pairedControlsChanged = true;
+                }
+            }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_n) skipPreset = true;
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_p) previousPreset = true;
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_a) {
-                asciiEnabled = !asciiEnabled;
-                std::cerr << "display: " << (asciiEnabled ? "Omadrop ASCII" : "original MilkDrop") << "\n";
+                if (pairedFollower) pairedControlRequest = "ascii";
+                else {
+                    asciiEnabled = !asciiEnabled;
+                    saveAsciiEnabled(asciiEnabled);
+                    pairedControlsChanged = true;
+                    std::cerr << "display: "
+                              << (asciiEnabled ? "Omadrop ASCII" : "continuous")
+                              << "\n";
+                }
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F11) {
-                const bool fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
-                SDL_SetWindowFullscreen(window, fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                if (pairedFollower) pairedControlRequest = "fullscreen";
+                else {
+                    fullscreenEnabled = !fullscreenEnabled;
+                    SDL_SetWindowFullscreen(window, fullscreenEnabled
+                        ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                    pairedControlsChanged = true;
+                }
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_LEFTBRACKET) {
-                syncDelayMs = syncDelayMs >= 10 ? syncDelayMs - 10 : 0;
-                saveSyncDelay(syncDelayMs, sink);
-                std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
+                if (pairedFollower) pairedControlRequest = "delay-down";
+                else {
+                    syncDelayMs = syncDelayMs >= 10 ? syncDelayMs - 10 : 0;
+                    saveSyncDelay(syncDelayMs, sink);
+                    pairedControlsChanged = true;
+                    std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
+                }
             }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_RIGHTBRACKET) {
-                syncDelayMs = std::min(500u, syncDelayMs + 10);
-                saveSyncDelay(syncDelayMs, sink);
-                std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
+                if (pairedFollower) pairedControlRequest = "delay-up";
+                else {
+                    syncDelayMs = std::min(500u, syncDelayMs + 10);
+                    saveSyncDelay(syncDelayMs, sink);
+                    pairedControlsChanged = true;
+                    std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
+                }
             }
         }
-        if (pairedFollower && (skipPreset || previousPreset)) {
+        if (pairedFollower
+            && (skipPreset || previousPreset || !pairedControlRequest.empty())) {
             const std::filesystem::path temporary = pairedRequestPath.string()
                 + "." + std::to_string(getpid()) + ".tmp";
             std::ofstream output(temporary, std::ios::trunc);
-            output << (previousPreset ? "previous\n" : "next\n");
+            const std::string request = previousPreset ? "previous"
+                : skipPreset ? "next" : pairedControlRequest;
+            output << request << '\n';
             output.close();
             std::error_code error;
             std::filesystem::rename(temporary, pairedRequestPath, error);
@@ -815,12 +1131,81 @@ int main(int argc, char** argv) {
             if (requestInput >> request) {
                 skipPreset = request == "next";
                 previousPreset = request == "previous";
+                if (request == "ascii") {
+                    asciiEnabled = !asciiEnabled;
+                    saveAsciiEnabled(asciiEnabled);
+                    pairedControlsChanged = true;
+                    std::cerr << "display: "
+                              << (asciiEnabled ? "Omadrop ASCII" : "continuous")
+                              << "\n";
+                } else if (request == "fullscreen") {
+                    fullscreenEnabled = !fullscreenEnabled;
+                    SDL_SetWindowFullscreen(window, fullscreenEnabled
+                        ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                    pairedControlsChanged = true;
+                } else if (request == "delay-down") {
+                    syncDelayMs = syncDelayMs >= 10 ? syncDelayMs - 10 : 0;
+                    saveSyncDelay(syncDelayMs, sink);
+                    pairedControlsChanged = true;
+                    std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
+                } else if (request == "delay-up") {
+                    syncDelayMs = std::min(500u, syncDelayMs + 10);
+                    saveSyncDelay(syncDelayMs, sink);
+                    pairedControlsChanged = true;
+                    std::cerr << "audio sync delay: " << syncDelayMs << " ms\n";
+                } else if (request == "quit") {
+                    closeRequested = true;
+                    pairedControlsChanged = true;
+                }
                 std::error_code error;
                 std::filesystem::remove(pairedRequestPath, error);
             }
         }
-        const uint64_t now = SDL_GetTicks64();
-        if (automaticQuitAt > 0 && now >= automaticQuitAt) running = false;
+        if (pairedLeader && pairedControlsChanged) {
+            publishPairedState(presetIndex, 0, nativeEnabled ? 6 : transitionMode,
+                               false);
+        }
+        if (closeRequested && !closing) {
+            closing = true;
+            closeStartedAt = now;
+        }
+        if (closing && now - closeStartedAt >= closeDurationMs) {
+            running = false;
+            continue;
+        }
+        if (!startGateOpened && std::filesystem::exists(startGatePath)) {
+            startGateOpened = true;
+            revealStartedAt = now;
+            if (hasCover) coverStartedAt = now;
+        }
+        if (!artLookupComplete && now >= initialArtDeadlineAt) {
+            artLookupComplete = true;
+            suppressLateInitialCover = true;
+            std::cerr << "cover: startup artwork unavailable; continuing cleanly"
+                      << " without a late cover\n";
+        }
+        if (now >= nextSinkPollAt) {
+            nextSinkPollAt = now + 2000;
+            const std::string currentSink = defaultSinkName();
+            if (!currentSink.empty() && currentSink != sink) {
+                stopAudioCapture();
+                sink = currentSink;
+                syncDelayMs = loadSyncDelay(sink);
+                delayedPcm.clear();
+                featureBus.resetClock();
+                musicFrameBuilder.reset();
+                lastNonSilentAudioAt = now;
+                reportedAudioMode = false;
+                if (!startAudioCapture(sink)) {
+                    std::cerr << "audio: could not follow default sink " << sink << "\n";
+                    running = false;
+                } else {
+                    std::cerr << "audio: followed default sink " << sink
+                              << ", sync delay " << syncDelayMs << " ms\n";
+                }
+            }
+        }
+        if (automaticQuitAt > 0 && now >= automaticQuitAt) closeRequested = true;
         if (automaticNextAt > 0 && now >= automaticNextAt) {
             skipPreset = true;
             automaticNextAt = 0;
@@ -838,8 +1223,8 @@ int main(int argc, char** argv) {
                 close(mprisHelperFd);
                 mprisHelperFd = -1;
                 mprisHelperPid = -1;
-                artLookupComplete = true;
-                nextMprisPollAt = now + (timeline ? 500 : 1000);
+                nextMprisPollAt = now + (!artLookupComplete ? 250
+                                             : timeline ? 500 : 1000);
                 while (!mprisHelperOutput.empty()
                        && (mprisHelperOutput.back() == '\n' || mprisHelperOutput.back() == '\r')) {
                     mprisHelperOutput.pop_back();
@@ -849,14 +1234,31 @@ int main(int argc, char** argv) {
                     const auto state = parseMprisState(mprisHelperOutput, error);
                     if (!state) {
                         std::cerr << "mpris: " << error << "\n";
+                        if (!artLookupComplete) {
+                            artLookupComplete = true;
+                            suppressLateInitialCover = true;
+                        }
                     } else {
                         const PlaybackObservation observation
                             = playbackClock.observe(*state, now / 1000.0);
+                        // A player that appears after Omadrop has already
+                        // started is a new presentation, not a late result
+                        // from the launch-time artwork lookup. Let that first
+                        // track use its cover normally.
+                        if (observation.first && suppressLateInitialCover
+                            && mprisPollStartedAt >= initialArtDeadlineAt) {
+                            suppressLateInitialCover = false;
+                        }
+                        if (observation.trackChanged) {
+                            suppressLateInitialCover = false;
+                        }
                         seekedThisFrame = observation.seeked;
                         if (observation.first || observation.trackChanged) {
                             timelineDirector.reset();
                             featureBus.resetClock();
                             structureTracker.reset();
+                            musicFrameBuilder.reset();
+                            nativeSceneDirector.resetForTrack();
                             visualMotifs.reset();
                             structureClockLocked = false;
                             pendingTimelinePreset.reset();
@@ -873,10 +1275,21 @@ int main(int argc, char** argv) {
                             transitionWindowAt = now + 19000;
                             transitionDeadlineAt = now + 23000;
                             if (hasCover) coverStartedAt = now;
-                            publishPairedState(presetIndex, 0, 0, true);
+                            publishPairedState(
+                                presetIndex, 0, nativeEnabled ? 6 : 0, true,
+                                nativeEnabled
+                                    ? static_cast<int>(
+                                        nativeSceneDirector.state().currentScene)
+                                    : -1,
+                                nativeEnabled
+                                    ? static_cast<int>(
+                                        nativeSceneDirector.state().currentScene)
+                                    : -1);
                             std::cerr << "track: " << state->identity << "\n";
                         }
-                        if (!state->artPath.empty() && state->artPath != currentArtPath
+                        if (!suppressLateInitialCover
+                            && !state->artPath.empty()
+                            && state->artPath != currentArtPath
                             && loadPngTexture(state->artPath, coverTexture, coverAspect)) {
                             currentArtPath = state->artPath;
                             albumColor = loadPaletteColor(state->artPath);
@@ -884,7 +1297,16 @@ int main(int argc, char** argv) {
                             coverStartedAt = now;
                             std::cerr << "cover: " << state->artPath << "\n";
                         }
+                        if (!artLookupComplete && hasCover) {
+                            artLookupComplete = true;
+                        }
                     }
+                } else if (!artLookupComplete) {
+                    // No MPRIS player is active, so there is no artwork to wait
+                    // for. Begin with the native scene and never reverse into a
+                    // cover from this launch attempt.
+                    artLookupComplete = true;
+                    suppressLateInitialCover = true;
                 }
             }
         }
@@ -956,6 +1378,10 @@ int main(int argc, char** argv) {
             }
             audioFeatures = featureBus.processStereo(pcm.data(), analysisHopFrames);
             const MusicalStructureState& structure = structureTracker.update(audioFeatures);
+            musicFrame = musicFrameBuilder.update(
+                audioFeatures, structure, 1.0f / 60.0f,
+                syncDelayMs / 1000.0f);
+            if (nativeEnabled) publishPairedMusic(musicFrame);
             structureClockLocked = structure.clockLocked;
             phraseBoundaryThisFrame = phraseBoundaryThisFrame || structure.phraseCrossed;
             sectionBoundaryThisFrame = sectionBoundaryThisFrame || structure.sectionCrossed;
@@ -1058,8 +1484,26 @@ int main(int argc, char** argv) {
                         + visualPcm[right * 2 + channel] * fraction;
                 }
             }
-            projectm_pcm_add_float(engines[0], projectmPcm.data(), forwardedFrames, PROJECTM_STEREO);
-            projectm_pcm_add_float(engines[1], projectmPcm.data(), forwardedFrames, PROJECTM_STEREO);
+            if (!nativeEnabled) {
+                projectm_pcm_add_float(
+                    engines[0], projectmPcm.data(), forwardedFrames, PROJECTM_STEREO);
+                projectm_pcm_add_float(
+                    engines[1], projectmPcm.data(), forwardedFrames, PROJECTM_STEREO);
+            }
+        }
+
+        if (nativeEnabled && pairedFollower) {
+            std::ifstream pairedMusicInput(pairedMusicPath, std::ios::binary);
+            const std::string pairedMusic{
+                std::istreambuf_iterator<char>(pairedMusicInput),
+                std::istreambuf_iterator<char>()};
+            if (const auto synchronized = pairedMusicFollower.consume(pairedMusic)) {
+                musicFrame = *synchronized;
+                if (!reportedPairedMusic) {
+                    std::cerr << "paired music: synchronized to leader\n";
+                    reportedPairedMusic = true;
+                }
+            }
         }
 
         const bool timelineEligible = timeline
@@ -1118,8 +1562,53 @@ int main(int argc, char** argv) {
             std::ostringstream pairedText;
             pairedText << pairedInput.rdbuf();
             const auto pairedState = pairedDisplayFollower.consume(
-                pairedText.str(), presets.size());
-            if (pairedState && pairedState->hardSync) {
+                pairedText.str(), presets.size(), nativeSceneCount);
+            if (pairedState) {
+                if (pairedState->asciiMode >= 0) {
+                    const bool synchronizedAscii = pairedState->asciiMode == 1;
+                    if (asciiEnabled != synchronizedAscii) {
+                        asciiEnabled = synchronizedAscii;
+                        std::cerr << "display: "
+                                  << (asciiEnabled ? "Omadrop ASCII" : "continuous")
+                                  << " (paired)\n";
+                    }
+                }
+                if (pairedState->fullscreenMode >= 0) {
+                    const bool synchronizedFullscreen
+                        = pairedState->fullscreenMode == 1;
+                    if (fullscreenEnabled != synchronizedFullscreen) {
+                        fullscreenEnabled = synchronizedFullscreen;
+                        SDL_SetWindowFullscreen(window, fullscreenEnabled
+                            ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                    }
+                }
+                if (pairedState->syncDelayMs >= 0
+                    && syncDelayMs
+                       != static_cast<unsigned int>(pairedState->syncDelayMs)) {
+                    syncDelayMs = static_cast<unsigned int>(pairedState->syncDelayMs);
+                    std::cerr << "audio sync delay: " << syncDelayMs
+                              << " ms (paired)\n";
+                }
+                if (pairedState->closeMode == 1) closeRequested = true;
+            }
+            if (nativeEnabled && pairedState && pairedState->nativeScene >= 0) {
+                const NativeSceneKind target = static_cast<NativeSceneKind>(
+                    pairedState->nativeScene);
+                if (pairedState->hardSync) nativeSceneDirector.selectScene(target);
+                else {
+                    if (pairedState->nativeSourceScene >= 0) {
+                        const NativeSceneKind source = static_cast<NativeSceneKind>(
+                            pairedState->nativeSourceScene);
+                        const NativeSceneState& followerState
+                            = nativeSceneDirector.state();
+                        if (!followerState.transitioning
+                            && followerState.currentScene != source) {
+                            nativeSceneDirector.selectScene(source);
+                        }
+                    }
+                    nativeSceneDirector.requestScene(target);
+                }
+            } else if (pairedState && pairedState->hardSync) {
                 presetIndex = pairedState->presetIndex;
                 presetTransitionActive = false;
                 pendingTimelinePreset.reset();
@@ -1167,7 +1656,7 @@ int main(int argc, char** argv) {
         const bool deadlineTransition = !timelineEligible && !confidentStructure
                                      && now >= transitionDeadlineAt;
         const bool timelineTransition = pendingTimelinePreset.has_value();
-        if (!pairedFollower && !presetTransitionActive && presets.size() > 1
+        if (!nativeEnabled && !pairedFollower && !presetTransitionActive && presets.size() > 1
             && (skipPreset || previousPreset || timelineTransition
                 || musicalTransition || deadlineTransition)) {
             const std::size_t outgoingPreset = presetIndex;
@@ -1269,6 +1758,76 @@ int main(int argc, char** argv) {
 
         const float frameSeconds = std::min(0.1f, (now - previousFrameAt) / 1000.0f);
         previousFrameAt = now;
+        if (nativeEnabled) {
+            if (skipPreset) nativeSceneDirector.requestNext();
+            if (previousPreset) nativeSceneDirector.requestPrevious();
+            const bool scriptedLeader = !scriptedScenes.empty() && !pairedFollower;
+            const bool coverPresentationComplete = !hasCover
+                || (now - coverStartedAt) / 1000.0f
+                    >= coverHoldSeconds + coverDissolveSeconds;
+            const bool scriptedBarBoundary
+                = musicFrame.clockConfidence >= 0.35f
+               && scriptedPreviousBarPhase > 0.72f
+               && musicFrame.barPhase < 0.28f;
+            if (scriptedLeader && windowShown && coverPresentationComplete
+                && !nativeSceneDirector.state().transitioning) {
+                if (scriptedSceneSettledAt == 0) {
+                    scriptedSceneSettledAt = now;
+                } else {
+                    const float scriptedDwell
+                        = (now - scriptedSceneSettledAt) / 1000.0f;
+                    const bool scriptedCue = scriptedDwell
+                            >= scriptedSceneMaximumSeconds
+                        || (scriptedDwell >= scriptedSceneDwellSeconds
+                            && scriptedBarBoundary);
+                    if (scriptedCue) {
+                        if (scriptedSceneIndex + 1 < scriptedScenes.size()) {
+                            ++scriptedSceneIndex;
+                            nativeSceneDirector.requestScene(
+                                scriptedScenes[scriptedSceneIndex]);
+                            scriptedSceneSettledAt = 0;
+                        } else if (scriptedSequenceOnce) {
+                            if (!recordStopSignaled) {
+                                signalRecordingMarker(recordStopPath);
+                                recordStopSignaled = true;
+                            }
+                            closeRequested = true;
+                            publishPairedState(
+                                presetIndex, 0, 6, false,
+                                static_cast<int>(
+                                    nativeSceneDirector.state().currentScene),
+                                static_cast<int>(
+                                    nativeSceneDirector.state().currentScene));
+                        } else {
+                            scriptedSceneIndex = 0;
+                            nativeSceneDirector.requestScene(
+                                scriptedScenes.front());
+                            scriptedSceneSettledAt = 0;
+                        }
+                    }
+                }
+            }
+            nativeSceneState = nativeSceneDirector.update(
+                musicFrame, frameSeconds,
+                !pairedFollower && scriptedScenes.empty());
+            if (nativeSceneState.transitioning && !nativeTransitionWasActive) {
+                std::cerr << "native scene: "
+                          << nativeSceneName(nativeSceneState.currentScene) << " -> "
+                          << nativeSceneName(nativeSceneState.incomingScene)
+                          << (nativeSceneState.motifRecalled ? " (motif recall)" : "")
+                          << "\n";
+                publishPairedState(
+                    presetIndex, 0, 6, false,
+                    static_cast<int>(nativeSceneState.incomingScene),
+                    static_cast<int>(nativeSceneState.currentScene));
+            } else if (!nativeSceneState.transitioning && nativeTransitionWasActive) {
+                std::cerr << "native scene: "
+                          << nativeSceneName(nativeSceneState.currentScene) << "\n";
+                if (scriptedLeader) scriptedSceneSettledAt = now;
+            }
+            nativeTransitionWasActive = nativeSceneState.transitioning;
+            scriptedPreviousBarPhase = musicFrame.barPhase;
+        }
         bassImpact *= std::exp(-6.5f * frameSeconds);
         midImpact *= std::exp(-8.0f * frameSeconds);
         trebleImpact *= std::exp(-13.0f * frameSeconds);
@@ -1288,12 +1847,14 @@ int main(int argc, char** argv) {
             // Establish the artwork, then get into the live visual quickly.
             // A fifteen-second intro made every quick relaunch look stuck on
             // the cover and hid the music response users were trying to test.
-            if (coverAge < 5.0f) coverBlend = 1.0f;
-            else if (coverAge < 10.0f) {
-                const float x = (coverAge - 5.0f) / 5.0f;
+            if (coverAge < coverHoldSeconds) coverBlend = 1.0f;
+            else if (coverAge < coverHoldSeconds + coverDissolveSeconds) {
+                const float x = (coverAge - coverHoldSeconds)
+                              / coverDissolveSeconds;
                 coverBlend = 1.0f - x * x * (3.0f - 2.0f * x);
             }
-            paletteInfluence = 0.12f + 0.28f * std::exp(-std::max(0.0f, coverAge - 5.0f) / 22.0f);
+            paletteInfluence = 0.12f + 0.28f * std::exp(
+                -std::max(0.0f, coverAge - coverHoldSeconds) / 22.0f);
         }
 
         int outputW = 0, outputH = 0;
@@ -1316,13 +1877,34 @@ int main(int argc, char** argv) {
             glBindTexture(GL_TEXTURE_2D, frameTextures[index]);
             glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, sourceWidth, sourceHeight);
         };
-        renderEngine(activeEngine);
-        if (presetTransitionActive) renderEngine(1 - activeEngine);
+        GLuint renderedSourceTexture = frameTextures[activeEngine];
+        GLuint renderedNextTexture
+            = frameTextures[presetTransitionActive ? 1 - activeEngine : activeEngine];
+        if (nativeEnabled) {
+            std::string error;
+            if (!nativeRenderer->render(musicFrame, nativeSceneState,
+                                        sourceWidth, sourceHeight, albumColor,
+                                        hasCover ? coverTexture : 0, coverAspect,
+                                        frameSeconds, error)) {
+                std::cerr << "native renderer: " << error << "\n";
+                running = false;
+                continue;
+            }
+            renderedSourceTexture
+                = nativeRenderer->texture(nativeSceneState.currentScene);
+            renderedNextTexture = nativeSceneState.transitioning
+                ? nativeRenderer->texture(nativeSceneState.incomingScene)
+                : renderedSourceTexture;
+        } else {
+            renderEngine(activeEngine);
+            if (presetTransitionActive) renderEngine(1 - activeEngine);
+        }
 
-        const float presetBlend = presetTransitionActive
-            ? std::clamp((now - presetTransitionStartedAt)
-                         / static_cast<float>(presetTransitionDuration), 0.0f, 1.0f)
-            : 0.0f;
+        const float presetBlend = nativeEnabled ? nativeSceneState.transition
+            : presetTransitionActive
+                ? std::clamp((now - presetTransitionStartedAt)
+                             / static_cast<float>(presetTransitionDuration), 0.0f, 1.0f)
+                : 0.0f;
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, outputW, outputH);
@@ -1336,40 +1918,62 @@ int main(int argc, char** argv) {
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(program);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, frameTextures[activeEngine]);
+        glBindTexture(GL_TEXTURE_2D, renderedSourceTexture);
         glUniform1i(glGetUniformLocation(program, "sourceFrame"), 0);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, coverTexture);
         glUniform1i(glGetUniformLocation(program, "coverFrame"), 1);
         glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, frameTextures[presetTransitionActive ? 1 - activeEngine : activeEngine]);
+        glBindTexture(GL_TEXTURE_2D, renderedNextTexture);
         glUniform1i(glGetUniformLocation(program, "nextFrame"), 2);
         glUniform1f(glGetUniformLocation(program, "presetMix"), presetBlend);
-        glUniform1i(glGetUniformLocation(program, "transitionMode"), transitionMode);
+        glUniform1i(glGetUniformLocation(program, "transitionMode"),
+                    nativeEnabled ? 6 : transitionMode);
         const PresetProfile& sourceProfile = profileForPreset(presets[
             presetTransitionActive ? transitionOutgoingPresetIndex : presetIndex]);
         const PresetProfile& nextProfile = profileForPreset(presets[presetIndex]);
+        float displayAsciiExposure = sourceProfile.asciiExposure
+                                   * (1.0f - presetBlend)
+                                   + nextProfile.asciiExposure * presetBlend;
+        float displayFieldExposure = 1.0f;
+        if (nativeEnabled) {
+            const NativeSceneMaterial sourceMaterial
+                = nativeSceneMaterial(nativeSceneState.currentScene);
+            const NativeSceneMaterial nextMaterial = nativeSceneMaterial(
+                nativeSceneState.transitioning ? nativeSceneState.incomingScene
+                                               : nativeSceneState.currentScene);
+            displayAsciiExposure = sourceMaterial.asciiExposure
+                                 * (1.0f - presetBlend)
+                                 + nextMaterial.asciiExposure * presetBlend;
+            displayFieldExposure = sourceMaterial.fieldExposure
+                                 * (1.0f - presetBlend)
+                                 + nextMaterial.fieldExposure * presetBlend;
+        }
         glUniform1i(glGetUniformLocation(program, "sourceReactionMode"),
                     reactionMode(sourceProfile));
         glUniform1i(glGetUniformLocation(program, "nextReactionMode"),
                     reactionMode(nextProfile));
         glUniform3f(glGetUniformLocation(program, "sourceReactionGain"),
-                    sourceProfile.kickGain * reactionScale,
-                    sourceProfile.snareGain * reactionScale,
-                    sourceProfile.hatGain * reactionScale);
+                    nativeEnabled ? 0.0f : sourceProfile.kickGain * reactionScale,
+                    nativeEnabled ? 0.0f : sourceProfile.snareGain * reactionScale,
+                    nativeEnabled ? 0.0f : sourceProfile.hatGain * reactionScale);
         glUniform3f(glGetUniformLocation(program, "nextReactionGain"),
-                    nextProfile.kickGain * reactionScale,
-                    nextProfile.snareGain * reactionScale,
-                    nextProfile.hatGain * reactionScale);
+                    nativeEnabled ? 0.0f : nextProfile.kickGain * reactionScale,
+                    nativeEnabled ? 0.0f : nextProfile.snareGain * reactionScale,
+                    nativeEnabled ? 0.0f : nextProfile.hatGain * reactionScale);
         glUniform1f(glGetUniformLocation(program, "asciiExposure"),
-                    sourceProfile.asciiExposure * (1.0f - presetBlend)
-                    + nextProfile.asciiExposure * presetBlend);
+                    displayAsciiExposure);
+        glUniform1f(glGetUniformLocation(program, "fieldExposure"),
+                    displayFieldExposure);
+        glUniform1i(glGetUniformLocation(program, "nativeRenderer"),
+                    nativeEnabled ? 1 : 0);
         glUniform2f(glGetUniformLocation(program, "resolution"), static_cast<float>(outputW), static_cast<float>(outputH));
         glUniform1f(glGetUniformLocation(program, "coverAspect"), coverAspect);
         glUniform1f(glGetUniformLocation(program, "coverMix"), coverBlend);
         glUniform3f(glGetUniformLocation(program, "albumColor"),
                     albumColor[0], albumColor[1], albumColor[2]);
-        glUniform1f(glGetUniformLocation(program, "paletteInfluence"), paletteInfluence);
+        glUniform1f(glGetUniformLocation(program, "paletteInfluence"),
+                    nativeEnabled ? 0.0f : paletteInfluence);
         glUniform1f(glGetUniformLocation(program, "bassLevel"), normalizedBass);
         glUniform1f(glGetUniformLocation(program, "bassImpact"), bassImpact);
         glUniform1f(glGetUniformLocation(program, "midLevel"), normalizedMid);
@@ -1377,16 +1981,34 @@ int main(int argc, char** argv) {
         glUniform1f(glGetUniformLocation(program, "midImpact"), midImpact);
         glUniform1f(glGetUniformLocation(program, "trebleImpact"), trebleImpact);
         glUniform1i(glGetUniformLocation(program, "asciiEnabled"), asciiEnabled ? 1 : 0);
+        const auto ease = [](float value) {
+            const float position = std::clamp(value, 0.0f, 1.0f);
+            return position * position * (3.0f - 2.0f * position);
+        };
+        const float entrance = startGateOpened && revealStartedAt > 0
+            ? ease((now - revealStartedAt) / 480.0f) : 0.0f;
+        const float exit = closing
+            ? 1.0f - ease((now - closeStartedAt)
+                / static_cast<float>(closeDurationMs)) : 1.0f;
+        glUniform1f(glGetUniformLocation(program, "visibility"), entrance * exit);
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        if (!startGateOpened) {
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
         SDL_GL_SwapWindow(window);
         if (!windowShown && (hasCover || artLookupComplete)) {
+            if (!startReadyPath.empty()) {
+                std::ofstream ready(startReadyPath, std::ios::trunc);
+                ready << getpid() << '\n';
+            }
             SDL_ShowWindow(window);
+            if (startGatePath.empty()) revealStartedAt = now;
             SDL_DisableScreenSaver();
             windowShown = true;
             std::cerr << "idle: inhibition requested while Omadrop is visible\n";
         }
-
         // SDL's swap interval is not reliably honored by every Wayland path.
         // MilkDrop presets contain equations that advance once per rendered
         // frame, so an uncapped 250-300 FPS loop looks roughly five times too
@@ -1404,9 +2026,8 @@ int main(int argc, char** argv) {
         waitpid(mprisHelperPid, nullptr, 0);
         close(mprisHelperFd);
     }
-    kill(audioPid, SIGTERM);
-    waitpid(audioPid, nullptr, 0);
-    close(audioFd);
+    stopAudioCapture();
+    nativeRenderer.reset();
     projectm_destroy(engines[0]);
     projectm_destroy(engines[1]);
     glDeleteProgram(program);

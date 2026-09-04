@@ -1,5 +1,6 @@
 #include "mpris_state.h"
 #include "paired_display.h"
+#include "paired_music_state.h"
 #include "structure_timeline.h"
 
 #include <cassert>
@@ -103,7 +104,39 @@ int main(int argc, char** argv) {
     const auto pairedHardSync = pairedFollower.consume("2 4 0 0 1\n", 16);
     assert(pairedHardSync && pairedHardSync->presetIndex == 4);
     assert(pairedHardSync->hardSync);
+    const auto nativeTransition = pairedFollower.consume(
+        "3 4 0 6 0 2 1\n", 16, 3);
+    assert(nativeTransition && nativeTransition->nativeScene == 2);
+    assert(nativeTransition->nativeSourceScene == 1);
+    assert(nativeTransition->transitionMode == 6);
+    const auto pairedControls = pairedFollower.consume(
+        "4 4 0 6 1 2 2 0 1 230 0\n", 16, 3);
+    assert(pairedControls && pairedControls->asciiMode == 0);
+    assert(pairedControls->fullscreenMode == 1);
+    assert(pairedControls->syncDelayMs == 230);
+    assert(pairedControls->closeMode == 0);
+    assert(!decodePairedDisplayState(
+        "5 4 0 6 1 2 2 2 1 230\n", 16, 3));
+    assert(!decodePairedDisplayState("4 4 0 6 0 3\n", 16, 3));
     assert(!decodePairedDisplayState("3 16 0 0 1\n", 16));
+
+    MusicFrame sharedMusic;
+    sharedMusic.audioTimeSeconds = 42.25;
+    sharedMusic.bpm = 127.0f;
+    sharedMusic.kick = 0.82f;
+    sharedMusic.spectrumLevel[12] = 1.4f;
+    PairedMusicFollower musicFollower;
+    const std::string encodedMusic = encodePairedMusicState({
+        .serial = 9,
+        .frame = sharedMusic,
+    });
+    const auto receivedMusic = musicFollower.consume(encodedMusic);
+    assert(receivedMusic && receivedMusic->audioTimeSeconds == 42.25);
+    assert(receivedMusic->bpm == 127.0f);
+    assert(receivedMusic->kick == 0.82f);
+    assert(receivedMusic->spectrumLevel[12] == 1.4f);
+    assert(!musicFollower.consume(encodedMusic));
+    assert(!decodePairedMusicState("invalid"));
 
     std::cout << "structure timeline passed\n";
 }

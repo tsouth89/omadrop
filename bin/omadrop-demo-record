@@ -1,0 +1,198 @@
+#!/bin/bash
+set -euo pipefail
+
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+
+usage() {
+  cat <<'EOF'
+Usage: omadrop-demo-record [OUTPUT.mp4]
+
+Record the curated Omadrop showcase on the focused monitor. The default output
+is a timestamped MP4 in the user's Videos directory.
+EOF
+}
+
+case ${1:-} in
+  -h|--help) usage; exit 0 ;;
+  --*) echo "omadrop-demo-record: unknown option: $1" >&2; usage >&2; exit 2 ;;
+esac
+
+for command in ffmpeg ffprobe gpu-screen-recorder hyprctl jq; do
+  command -v "$command" >/dev/null || {
+    echo "omadrop-demo-record: required command not found: $command" >&2
+    exit 1
+  }
+done
+
+monitor=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name' | head -n 1)
+[[ -n $monitor && $monitor != null ]] || {
+  echo "omadrop-demo-record: could not identify the focused monitor" >&2
+  exit 1
+}
+
+if [[ -n ${1:-} ]]; then
+  output=$(readlink -m "$1")
+else
+  videos_dir=$(xdg-user-dir VIDEOS 2>/dev/null || true)
+  videos_dir=${videos_dir:-${HOME}/Videos}
+  output=$videos_dir/omadrop-demo-$(date +%Y-%m-%d_%H-%M-%S).mp4
+fi
+mkdir -p "$(dirname "$output")"
+[[ ! -e $output ]] || {
+  echo "omadrop-demo-record: output already exists: $output" >&2
+  exit 1
+}
+
+record_dir=$(mktemp -d /tmp/omadrop-demo-record.XXXXXX)
+arm_file=$record_dir/armed
+start_file=$record_dir/start
+stop_file=$record_dir/stop
+capture_file=$record_dir/capture.mp4
+capture_timestamp=$capture_file.ts
+finalized_file=$record_dir/finalized.mp4
+recorder_log=$record_dir/recorder.log
+demo_pid=
+recorder_pid=
+audio_player_pid=
+notification_dnd_changed=0
+
+notification_ipc() {
+  qs -p /usr/share/omarchy/shell ipc call notifications "$@" 2>/dev/null
+}
+
+cleanup() {
+  if [[ -n $recorder_pid ]] && kill -0 "$recorder_pid" 2>/dev/null; then
+    kill -INT "$recorder_pid" 2>/dev/null || true
+    wait "$recorder_pid" 2>/dev/null || true
+  fi
+  if [[ -n $demo_pid ]] && kill -0 "$demo_pid" 2>/dev/null; then
+    kill -TERM "$demo_pid" 2>/dev/null || true
+    wait "$demo_pid" 2>/dev/null || true
+  fi
+  if [[ -n $audio_player_pid ]] && kill -0 "$audio_player_pid" 2>/dev/null; then
+    kill -TERM "$audio_player_pid" 2>/dev/null || true
+    wait "$audio_player_pid" 2>/dev/null || true
+  fi
+  if ((notification_dnd_changed)); then
+    notification_ipc setDnd off >/dev/null || true
+  fi
+  rm -f "$arm_file" "$start_file" "$stop_file" "$capture_file" \
+    "$capture_timestamp" "$finalized_file" "$recorder_log"
+  rmdir "$record_dir" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+if command -v qs >/dev/null && [[ -d /usr/share/omarchy/shell ]]; then
+  notification_state=$(notification_ipc dndState || true)
+  if [[ $notification_state == off ]]; then
+    notification_ipc setDnd on >/dev/null || true
+    notification_dnd_changed=1
+  fi
+  notification_ipc dismissAll >/dev/null || true
+fi
+
+export OMADROP_RECORD_ARM_FILE=$arm_file
+export OMADROP_RECORD_START_FILE=$start_file
+export OMADROP_RECORD_STOP_FILE=$stop_file
+export OMADROP_DEMO_COVER_HOLD_SECONDS=${OMADROP_DEMO_COVER_HOLD_SECONDS:-2.5}
+export OMADROP_DEMO_SCENE_MAX_SECONDS=${OMADROP_DEMO_SCENE_MAX_SECONDS:-5.25}
+# The recording contains the digital output stream, before any Bluetooth or
+# speaker latency. Device compensation would make the published visuals late.
+export OMADROP_SYNC_MS=0
+
+"$root/bin/omadrop-demo" --all &
+demo_pid=$!
+
+for ((attempt = 0; attempt < 300; attempt++)); do
+  [[ -e $arm_file ]] && break
+  if ! kill -0 "$demo_pid" 2>/dev/null; then
+    wait "$demo_pid" || true
+    echo "omadrop-demo-record: Omadrop exited before the capture was armed" >&2
+    exit 1
+  fi
+  sleep 0.05
+done
+[[ -e $arm_file ]] || {
+  echo "omadrop-demo-record: timed out waiting for Omadrop" >&2
+  exit 1
+}
+
+gpu-screen-recorder \
+  -w "$monitor" -k h264 -q very_high -tune quality \
+  -f 60 -fm cfr -cursor no -fallback-cpu-encoding yes \
+  -write-first-frame-ts yes \
+  -a default_output -ac aac -o "$capture_file" \
+  >"$recorder_log" 2>&1 &
+recorder_pid=$!
+
+for ((attempt = 0; attempt < 200; attempt++)); do
+  [[ -e $capture_timestamp ]] && break
+  if ! kill -0 "$recorder_pid" 2>/dev/null; then
+    wait "$recorder_pid" || true
+    echo "omadrop-demo-record: recorder stopped before its first frame" >&2
+    sed -n '1,12p' "$recorder_log" >&2
+    exit 1
+  fi
+  sleep 0.05
+done
+[[ -e $capture_timestamp ]] || {
+  echo "omadrop-demo-record: timed out waiting for the recorder" >&2
+  exit 1
+}
+if [[ -n ${OMADROP_DEMO_AUDIO_FILE:-} ]]; then
+  command -v ffplay >/dev/null || {
+    echo "omadrop-demo-record: ffplay is required for OMADROP_DEMO_AUDIO_FILE" >&2
+    exit 1
+  }
+  [[ -f $OMADROP_DEMO_AUDIO_FILE ]] || {
+    echo "omadrop-demo-record: audio file not found: $OMADROP_DEMO_AUDIO_FILE" >&2
+    exit 1
+  }
+  ffplay -nodisp -autoexit -loglevel error "$OMADROP_DEMO_AUDIO_FILE" &
+  audio_player_pid=$!
+  sleep 0.08
+fi
+touch "$start_file"
+
+for ((attempt = 0; attempt < 2400; attempt++)); do
+  [[ -e $stop_file ]] && break
+  if ! kill -0 "$demo_pid" 2>/dev/null; then
+    break
+  fi
+  if ! kill -0 "$recorder_pid" 2>/dev/null; then
+    wait "$recorder_pid" || true
+    echo "omadrop-demo-record: recorder stopped unexpectedly" >&2
+    sed -n '1,12p' "$recorder_log" >&2
+    exit 1
+  fi
+  sleep 0.05
+done
+
+if [[ -e $stop_file ]]; then
+  # The encoder's last video frame trails capture time by roughly 250 ms.
+  # Keep Omadrop above the desktop until that buffered frame is deep in the
+  # extended recording-only fade.
+  sleep 0.88
+fi
+kill -INT "$recorder_pid" 2>/dev/null || true
+wait "$recorder_pid" || true
+recorder_pid=
+wait "$demo_pid" || true
+demo_pid=
+
+[[ -s $capture_file ]] || {
+  echo "omadrop-demo-record: recorder did not create a video" >&2
+  sed -n '1,12p' "$recorder_log" >&2
+  exit 1
+}
+video_duration=$(ffprobe -v error -select_streams v:0 \
+  -show_entries stream=duration -of csv=p=0 "$capture_file")
+[[ $video_duration =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+  echo "omadrop-demo-record: could not read the captured video duration" >&2
+  exit 1
+}
+ffmpeg -v error -i "$capture_file" \
+  -map 0:v:0 -map '0:a:0?' -t "$video_duration" \
+  -c copy -movflags +faststart "$finalized_file"
+mv "$finalized_file" "$output"
+printf 'Recorded %s\n' "$output"

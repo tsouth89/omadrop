@@ -18,7 +18,8 @@ mkdir -p "$OUT"
 rm -f "$OUT"/f*.png "$OUT"/strip.png
 
 if [[ -n ${OMADROP_PRESET_PATH:-} ]]; then
-  OMADROP_FULLSCREEN=0 OMADROP_DISABLE_ART=1 \
+  OMADROP_ENGINE=${OMADROP_ENGINE:-projectm} \
+    OMADROP_FULLSCREEN=0 OMADROP_DISABLE_ART=1 \
     "$HERE/../experiments/projectm-ascii/projectm-ascii-live" \
     "$OMADROP_PRESET_PATH" >/dev/null 2>&1 &
 else

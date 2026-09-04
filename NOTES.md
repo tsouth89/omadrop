@@ -37,9 +37,9 @@ Implemented in the native path:
 
 Current curated rotation:
 
-1. Aderrasi, Contortion
-2. Martin, Wire Dance
-3. Aderrasi, Halls of Centrifuge
+1. Omadrop + Aderrasi, Contortion: Reactive Tunnel Edition
+2. Omadrop + Martin, Wire Dance: Reactive Wire Edition
+3. Omadrop + Aderrasi, Halls of Centrifuge: Reactive Orbit Edition
 4. Martin, Night Cathedral
 5. Aderrasi, Bitterfeld
 6. Aderrasi + Geiss, Airhandler (Painterly Kaleidoscope 2)
@@ -47,12 +47,7 @@ Current curated rotation:
 8. Unchained + Rovastar, Wormhole Pillars (Hall of Shadows mix)
 9. Rovastar, VooV's Organic Light
 10. fiShbRaiN, Crystal Glasses
-11. shifter, Mandala
-12. Geiss, Myriad Mosaics
-13. EoS + Phat, Cubetrace v2
-14. Krash + Rovastar, Cerebral Demons (Phat + EoS Moire remix)
-15. The NG + Geiss + Flexi, The Waterfowl in the Rain
-16. Phat + fiShbRaiN + EoS, Mandala Chasers remix
+11. Krash + Rovastar, Cerebral Demons (Phat + EoS Moire remix)
 
 The next product work is broader top-tier preset qualification, per-preset
 reaction tuning, transition polish, packaging, and a documented public install

@@ -6,18 +6,27 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 struct AudioFeatures {
     static constexpr std::size_t roleCount = 6;
+    static constexpr std::size_t spectrumCount = 32;
     std::array<float, roleCount> level{};
     std::array<float, roleCount> flux{};
+    std::array<float, spectrumCount> spectrumLevel{};
+    std::array<float, spectrumCount> spectrumFlux{};
     bool kick = false;
     bool snare = false;
     bool hat = false;
     float kickImpact = 0.0f;
     float snareImpact = 0.0f;
     float hatImpact = 0.0f;
+    float percussiveEnergy = 0.0f;
+    float harmonicEnergy = 0.0f;
+    float spectralCentroid = 0.0f;
+    float stereoWidth = 0.0f;
+    double audioTimeSeconds = 0.0;
     float bpm = 120.0f;
     float beatPhase = 0.0f;
     float beatConfidence = 0.0f;
@@ -64,15 +73,30 @@ public:
         features_.beatConfidence = 0.0f;
         features_.beatCrossed = false;
         features_.barCrossed = false;
+        spectrumHistory_ = {};
+        spectrumHistoryCursor_ = 0;
+        spectrumHistoryFrames_ = 0;
     }
 
     const AudioFeatures& processStereo(const float* stereo, std::size_t frames) {
         const std::size_t accepted = std::min<std::size_t>(frames, windowSize);
         std::move(samples_.begin() + accepted, samples_.end(), samples_.begin());
         const std::size_t start = windowSize - accepted;
+        float middleEnergy = 0.0f;
+        float sideEnergy = 0.0f;
         for (std::size_t i = 0; i < accepted; ++i) {
-            samples_[start + i] = 0.5f * (stereo[i * 2] + stereo[i * 2 + 1]);
+            const float middle = 0.5f * (stereo[i * 2] + stereo[i * 2 + 1]);
+            const float side = 0.5f * (stereo[i * 2] - stereo[i * 2 + 1]);
+            samples_[start + i] = middle;
+            middleEnergy += middle * middle;
+            sideEnergy += side * side;
         }
+        pendingStereoWidth_ = std::clamp(
+            std::sqrt(sideEnergy / std::max(1e-8f, middleEnergy + sideEnergy)),
+            0.0f, 1.0f);
+        processedFrames_ += accepted;
+        features_.audioTimeSeconds
+            = processedFrames_ / static_cast<double>(sampleRate);
         return analyze();
     }
 
@@ -80,6 +104,10 @@ public:
         const std::size_t accepted = std::min<std::size_t>(frames, windowSize);
         std::move(samples_.begin() + accepted, samples_.end(), samples_.begin());
         std::copy_n(mono, accepted, samples_.begin() + (windowSize - accepted));
+        pendingStereoWidth_ = 0.0f;
+        processedFrames_ += accepted;
+        features_.audioTimeSeconds
+            = processedFrames_ / static_cast<double>(sampleRate);
         return analyze();
     }
 
@@ -104,6 +132,77 @@ private:
             magnitude[role] = sum / std::max(1, last - first + 1);
         }
 
+        std::array<float, AudioFeatures::spectrumCount> spectrumMagnitude{};
+        constexpr float minimumSpectrumHz = 25.0f;
+        constexpr float maximumSpectrumHz = 12000.0f;
+        constexpr float spectrumRatio = maximumSpectrumHz / minimumSpectrumHz;
+        for (std::size_t band = 0; band < AudioFeatures::spectrumCount; ++band) {
+            const float lowerHz = minimumSpectrumHz * std::pow(
+                spectrumRatio,
+                static_cast<float>(band) / AudioFeatures::spectrumCount);
+            const float upperHz = minimumSpectrumHz * std::pow(
+                spectrumRatio,
+                static_cast<float>(band + 1) / AudioFeatures::spectrumCount);
+            const int first = std::max(
+                1, static_cast<int>(lowerHz * windowSize / sampleRate));
+            const int last = std::min(
+                windowSize / 2,
+                std::max(first, static_cast<int>(upperHz * windowSize / sampleRate)));
+            float sum = 0.0f;
+            for (int bin = first; bin <= last; ++bin) {
+                const float re = fftOutput_[bin][0];
+                const float im = fftOutput_[bin][1];
+                sum += std::log1p(std::sqrt(re * re + im * im));
+            }
+            spectrumMagnitude[band] = sum / std::max(1, last - first + 1);
+        }
+
+        spectrumHistory_[spectrumHistoryCursor_] = spectrumMagnitude;
+        spectrumHistoryCursor_ = (spectrumHistoryCursor_ + 1) % spectrumHistory_.size();
+        spectrumHistoryFrames_ = std::min<std::size_t>(
+            spectrumHistoryFrames_ + 1, spectrumHistory_.size());
+        float harmonicSum = 0.0f;
+        float percussiveSum = 0.0f;
+        float spectrumSum = 0.0f;
+        float centroidSum = 0.0f;
+        for (std::size_t band = 0; band < AudioFeatures::spectrumCount; ++band) {
+            std::array<float, 17> temporalValues{};
+            for (std::size_t frame = 0; frame < spectrumHistoryFrames_; ++frame) {
+                temporalValues[frame] = spectrumHistory_[frame][band];
+            }
+            const auto temporalMiddle = temporalValues.begin()
+                + static_cast<std::ptrdiff_t>(spectrumHistoryFrames_ / 2);
+            std::nth_element(temporalValues.begin(), temporalMiddle,
+                             temporalValues.begin()
+                                 + static_cast<std::ptrdiff_t>(spectrumHistoryFrames_));
+            const float harmonic = *temporalMiddle;
+
+            std::array<float, 5> frequencyValues{};
+            for (int offset = -2; offset <= 2; ++offset) {
+                const std::size_t neighbor = static_cast<std::size_t>(std::clamp(
+                    static_cast<int>(band) + offset, 0,
+                    static_cast<int>(AudioFeatures::spectrumCount) - 1));
+                frequencyValues[offset + 2] = spectrumMagnitude[neighbor];
+            }
+            std::nth_element(frequencyValues.begin(), frequencyValues.begin() + 2,
+                             frequencyValues.end());
+            const float percussive = frequencyValues[2];
+            const float harmonicPower = harmonic * harmonic;
+            const float percussivePower = percussive * percussive;
+            const float denominator = harmonicPower + percussivePower + 1e-8f;
+            const float magnitudeValue = spectrumMagnitude[band];
+            harmonicSum += magnitudeValue * harmonicPower / denominator;
+            percussiveSum += magnitudeValue * percussivePower / denominator;
+            spectrumSum += magnitudeValue;
+            const float bandPosition = (static_cast<float>(band) + 0.5f)
+                                     / AudioFeatures::spectrumCount;
+            centroidSum += magnitudeValue * bandPosition;
+        }
+        features_.harmonicEnergy = harmonicSum / std::max(1e-6f, spectrumSum);
+        features_.percussiveEnergy = percussiveSum / std::max(1e-6f, spectrumSum);
+        features_.spectralCentroid = centroidSum / std::max(1e-6f, spectrumSum);
+        features_.stereoWidth = pendingStereoWidth_;
+
         features_.kick = features_.snare = features_.hat = false;
         features_.kickImpact *= 0.88f;
         features_.snareImpact *= 0.84f;
@@ -117,6 +216,19 @@ private:
             features_.flux[role] = positive / std::max(0.015f, fluxMean_[role]);
             features_.level[role] = magnitude[role] / std::max(0.02f, levelMean_[role]);
             previous_[role] = magnitude[role];
+        }
+        for (std::size_t band = 0; band < AudioFeatures::spectrumCount; ++band) {
+            const float positive = std::max(
+                0.0f, spectrumMagnitude[band] - previousSpectrum_[band]);
+            spectrumFluxMean_[band]
+                = spectrumFluxMean_[band] * 0.94f + positive * 0.06f;
+            spectrumLevelMean_[band]
+                = spectrumLevelMean_[band] * 0.992f + spectrumMagnitude[band] * 0.008f;
+            features_.spectrumFlux[band]
+                = positive / std::max(0.015f, spectrumFluxMean_[band]);
+            features_.spectrumLevel[band]
+                = spectrumMagnitude[band] / std::max(0.02f, spectrumLevelMean_[band]);
+            previousSpectrum_[band] = spectrumMagnitude[band];
         }
 
         const float kickFlux = std::max(features_.flux[0], features_.flux[1]);
@@ -281,6 +393,14 @@ private:
     std::array<float, AudioFeatures::roleCount> previous_{};
     std::array<float, AudioFeatures::roleCount> fluxMean_{};
     std::array<float, AudioFeatures::roleCount> levelMean_{};
+    std::array<float, AudioFeatures::spectrumCount> previousSpectrum_{};
+    std::array<float, AudioFeatures::spectrumCount> spectrumFluxMean_{};
+    std::array<float, AudioFeatures::spectrumCount> spectrumLevelMean_{};
+    std::array<std::array<float, AudioFeatures::spectrumCount>, 17> spectrumHistory_{};
+    std::size_t spectrumHistoryCursor_ = 0;
+    std::size_t spectrumHistoryFrames_ = 0;
+    float pendingStereoWidth_ = 0.0f;
+    std::uint64_t processedFrames_ = 0;
     fftwf_plan plan_ = nullptr;
     AudioFeatures features_{};
     int frame_ = 0;

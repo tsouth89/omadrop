@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -133,6 +134,25 @@ std::vector<uint8_t> braillePass(const std::vector<uint8_t>& source, float expos
     }
     return result;
 }
+
+std::string stabilizePresetRandomExpressions(const std::string& preset) {
+    static const std::regex randomCall(R"(rand\s*\(\s*([0-9]+)\s*\))");
+    std::string stable;
+    stable.reserve(preset.size());
+    std::size_t copiedThrough = 0;
+    std::uint32_t state = 0x4f4d4144u;
+    for (std::sregex_iterator match(preset.begin(), preset.end(), randomCall), end;
+         match != end; ++match) {
+        stable.append(preset, copiedThrough,
+                      static_cast<std::size_t>(match->position()) - copiedThrough);
+        state = state * 1664525u + 1013904223u;
+        const unsigned long limit = std::max(1ul, std::stoul((*match)[1].str()));
+        stable += std::to_string(state % limit);
+        copiedThrough = static_cast<std::size_t>(match->position() + match->length());
+    }
+    stable.append(preset, copiedThrough, std::string::npos);
+    return stable;
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -192,10 +212,15 @@ int main(int argc, char** argv) {
     }
     std::ostringstream presetContents;
     presetContents << presetFile.rdbuf();
+    const bool roleAudit = std::getenv("OMADROP_ROLE_AUDIT") != nullptr;
     std::string preset = presetContents.str();
     if (std::getenv("OMADROP_DISABLE_ADAPTERS") == nullptr) {
         applyOmadropAdapter(argv[1], preset);
     }
+    if (roleAudit) preset = stabilizePresetRandomExpressions(preset);
+    // MilkDrop rand() expressions otherwise inherit projectM's process-time
+    // seed, which makes the offline A/B measurements vary between runs.
+    std::srand(0x4f4d4144);
     projectm_load_preset_data(projectm, preset.c_str(), false);
     const auto* profile = findProfileForPreset(argv[1]);
     const float asciiExposure = profile ? profile->asciiExposure : 1.0f;
@@ -217,20 +242,45 @@ int main(int argc, char** argv) {
     double nativeCoarseIdleMotion = 0.0;
     double asciiCoarseHitMotion = 0.0;
     double asciiCoarseIdleMotion = 0.0;
+    std::array<double, 3> roleMotion{};
+    std::array<double, 3> roleCoarseMotion{};
+    std::array<int, 3> roleFrames{};
+    double roleIdleMotion = 0.0;
+    double roleCoarseIdleMotion = 0.0;
+    int roleIdleFrames = 0;
     int hitFrames = 0;
     int idleFrames = 0;
     double phase = 0.0;
-    for (int frame = 0; frame < fps * 8; ++frame) {
+    const int auditSeconds = roleAudit ? 14 : 8;
+    for (int frame = 0; frame < fps * auditSeconds; ++frame) {
         const double seconds = frame / static_cast<double>(fps);
         const double beat = std::pow(std::max(0.0, std::sin(seconds * pi * 2.0)), 12.0);
+        const double cycle = std::fmod(seconds, 3.0);
+        auto isolatedPulse = [&](double center, double width) {
+            const double distance = (cycle - center) / width;
+            return std::exp(-distance * distance);
+        };
+        const double kickPulse = roleAudit ? isolatedPulse(0.25, 0.055) : beat;
+        const double snarePulse = roleAudit ? isolatedPulse(1.25, 0.045) : 0.0;
+        const double hatPulse = roleAudit ? isolatedPulse(2.25, 0.032) : 0.0;
         for (int i = 0; i < samplesPerFrame; ++i) {
             const double t = phase + i / static_cast<double>(sampleRate);
-            const float left = static_cast<float>(0.42 * std::sin(2.0 * pi * 55.0 * t) * (0.45 + beat)
-                                                  + 0.20 * std::sin(2.0 * pi * 233.0 * t)
-                                                  + 0.10 * std::sin(2.0 * pi * 3100.0 * t));
-            const float right = static_cast<float>(0.40 * std::sin(2.0 * pi * 61.0 * t) * (0.45 + beat)
-                                                   + 0.22 * std::sin(2.0 * pi * 311.0 * t)
-                                                   + 0.09 * std::sin(2.0 * pi * 4200.0 * t));
+            const float left = roleAudit
+                ? static_cast<float>(0.045 * std::sin(2.0 * pi * 97.0 * t)
+                    + 0.68 * kickPulse * std::sin(2.0 * pi * 62.0 * t)
+                    + 0.46 * snarePulse * std::sin(2.0 * pi * 620.0 * t)
+                    + 0.34 * hatPulse * std::sin(2.0 * pi * 5200.0 * t))
+                : static_cast<float>(0.42 * std::sin(2.0 * pi * 55.0 * t) * (0.45 + beat)
+                    + 0.20 * std::sin(2.0 * pi * 233.0 * t)
+                    + 0.10 * std::sin(2.0 * pi * 3100.0 * t));
+            const float right = roleAudit
+                ? static_cast<float>(0.043 * std::sin(2.0 * pi * 103.0 * t)
+                    + 0.66 * kickPulse * std::sin(2.0 * pi * 66.0 * t)
+                    + 0.44 * snarePulse * std::sin(2.0 * pi * 740.0 * t)
+                    + 0.32 * hatPulse * std::sin(2.0 * pi * 6800.0 * t))
+                : static_cast<float>(0.40 * std::sin(2.0 * pi * 61.0 * t) * (0.45 + beat)
+                    + 0.22 * std::sin(2.0 * pi * 311.0 * t)
+                    + 0.09 * std::sin(2.0 * pi * 4200.0 * t));
             pcm[i * 2] = left;
             pcm[i * 2 + 1] = right;
         }
@@ -257,6 +307,28 @@ int main(int argc, char** argv) {
         const auto currentNativeCoarse = coarseLuminance(currentNative);
         const auto currentAsciiCoarse = coarseLuminance(currentAscii);
         if (frame >= fps * 2 && !previousNative.empty()) {
+            if (roleAudit) {
+                const double auditPhase = std::fmod(seconds, 3.0);
+                const std::array<double, 3> centers{0.25, 1.25, 2.25};
+                bool countedRole = false;
+                for (std::size_t role = 0; role < centers.size(); ++role) {
+                    if (auditPhase >= centers[role] && auditPhase < centers[role] + 0.22) {
+                        roleMotion[role] += meanDifference(previousAscii, currentAscii);
+                        roleCoarseMotion[role] += meanDifference(previousAsciiCoarse,
+                                                                  currentAsciiCoarse);
+                        ++roleFrames[role];
+                        countedRole = true;
+                    }
+                }
+                if (!countedRole && ((auditPhase >= 0.68 && auditPhase < 0.92)
+                    || (auditPhase >= 1.68 && auditPhase < 1.92)
+                    || (auditPhase >= 2.68 && auditPhase < 2.92))) {
+                    roleIdleMotion += meanDifference(previousAscii, currentAscii);
+                    roleCoarseIdleMotion += meanDifference(previousAsciiCoarse,
+                                                            currentAsciiCoarse);
+                    ++roleIdleFrames;
+                }
+            }
             const int beatFrame = frame % fps;
             if (beatFrame >= 12 && beatFrame <= 20) {
                 nativeHitMotion += meanDifference(previousNative, currentNative);
@@ -302,6 +374,20 @@ int main(int argc, char** argv) {
               << " idle_native=" << nativeCoarseIdle
               << " idle_ascii=" << asciiCoarseIdle
               << "\n";
+    if (roleAudit) {
+        const double idle = roleIdleMotion / std::max(1, roleIdleFrames);
+        const double coarseIdle = roleCoarseIdleMotion / std::max(1, roleIdleFrames);
+        const std::array<const char*, 3> names{"kick", "snare", "hat"};
+        std::cout << "roles";
+        for (std::size_t role = 0; role < names.size(); ++role) {
+            const double motion = roleMotion[role] / std::max(1, roleFrames[role]);
+            const double coarse = roleCoarseMotion[role] / std::max(1, roleFrames[role]);
+            std::cout << ' ' << names[role] << '=' << motion / std::max(1e-9, idle)
+                      << ' ' << names[role] << "_coarse="
+                      << coarse / std::max(1e-9, coarseIdle);
+        }
+        std::cout << " idle=" << idle << " idle_coarse=" << coarseIdle << "\n";
+    }
 
     projectm_destroy(projectm);
     SDL_GL_DeleteContext(context);

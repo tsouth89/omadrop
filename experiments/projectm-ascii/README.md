@@ -13,15 +13,44 @@ Build:
 ./experiments/projectm-ascii/build.sh
 ```
 
+Run the native music-contract and render audits with:
+
+```sh
+./experiments/projectm-ascii/music-frame-test
+./experiments/projectm-ascii/native-scene-state-test
+./experiments/projectm-ascii/native-renderer-test ./shaders/native
+```
+
+Pass an optional output directory to `native-renderer-test` to write one
+deterministic reference frame per native scene for visual review.
+
+Replay a full 44.1 kHz stereo f32 song through the complete native analyzer,
+director, and renderer with `native-song-replay SHADERS RAW OUTPUT_DIRECTORY`.
+It writes a two-second visual contact sequence plus a per-frame music timeline.
+`OMADROP_REPLAY_CAPTURE_HOPS` changes the capture interval from its 120-hop
+default, and `OMADROP_REPLAY_MAX_SECONDS` limits a motion-review excerpt.
+
 Run:
 
 ```sh
-preset="presets/curated/Aderrasi - Contortion (Escher's Tunnel Mix).milk"
+preset="presets/curated/Omadrop + Aderrasi - Contortion (Reactive Tunnel Edition).milk"
 ./experiments/projectm-ascii/projectm-ascii "$preset" /tmp/native.ppm /tmp/ascii.ppm
 ```
 
 `projectm-ascii` remains the deterministic offline comparison tool.
 `projectm-ascii-live` is the live Omadrop renderer.
+
+Run the muted-viewer reaction audit with:
+
+```sh
+./bin/reactivity-audit
+```
+
+It compares the preserved classic Contortion, Halls Of Centrifuge, and Wire
+Dance presets with Omadrop's authored editions under isolated kick, snare, and
+hat fixtures.
+The audit fails if any role does not create a strong coarse-motion gesture or
+does not improve materially over the corresponding classic preset.
 
 Replay a raw 44.1 kHz stereo f32 sink capture through the production analyzer
 with `audio-feature-replay CAPTURE.raw`. It reports percussion, tempo, clock
@@ -77,6 +106,24 @@ kick, snare, and hat fixture. `OMADROP_DISABLE_ART=1` skips the cover sequence,
 milliseconds. `bin/motion-capture` uses these controls to inspect the native SDL
 renderer without manual input. `OMADROP_REACTION_SCALE=0` disables the authored
 post-process movement for deterministic native-versus-authored A/Bs.
+`OMADROP_CLASSIC_CONTORTION=1` swaps the preserved classic Contortion preset
+back into the rotation for a live A/B against the Reactive Tunnel edition.
+Add `OMADROP_CONTORTION_ONLY=1` to hold either edition for a focused listening
+test instead of waiting for it to appear in the rotation.
+`OMADROP_CLASSIC_HALLS=1` and `OMADROP_HALLS_ONLY=1` provide the same A/B for
+Halls Of Centrifuge and its Reactive Orbit edition.
+`OMADROP_CLASSIC_WIRE=1` and `OMADROP_WIRE_ONLY=1` provide the same A/B for
+Wire Dance and its Reactive Wire edition.
+
+The ten original native scenes are the default renderer. They use the
+production audio, artwork, palette, ASCII, and windowing paths through
+Omadrop's HDR feedback backend. Press `N` or `P` to transition between scenes.
+Set `OMADROP_ENGINE=projectm` to run the preserved preset renderer for
+compatibility or A/B review. `OMADROP_NATIVE_SCENE` accepts `depth-tunnel`,
+`centrifuge`, `wire-organism`, `prism-garden`, `orbital-loom`, `tidal-grid`,
+`pulse-cathedral`, `constellation-field`, `spectral-ribbons`, or `bloom-engine`.
+Set `OMADROP_ASCII=0` to inspect the continuous native field without the final
+ASCII material.
 
 ## Structure timelines
 

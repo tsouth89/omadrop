@@ -11,7 +11,7 @@
 #include <string>
 
 int main(int argc, char** argv) {
-    static_assert(presetProfiles.size() == 16);
+    static_assert(presetProfiles.size() == 11);
     std::set<std::string_view> filenames;
     std::array<int, 6> familyCounts{};
     std::array<int, 3> energyCounts{};
@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
         else familyBridges[family] = profile.bridge;
     }
 
-    for (int count : familyCounts) assert(count >= 2);
+    for (int count : familyCounts) assert(count >= 1);
     for (int count : energyCounts) assert(count >= 1);
     if (argc == 2) {
         std::size_t fileCount = 0;
@@ -52,6 +52,12 @@ int main(int argc, char** argv) {
         }
     }
     assert(presetBasename("plain.milk") == "plain.milk");
+    assert(findProfileForPreset("Aderrasi - Contortion (Escher's Tunnel Mix).milk")
+           == &presetProfiles.front());
+    assert(findProfileForPreset("Aderrasi - Halls Of Centrifuge.milk")
+           == &presetProfiles[2]);
+    assert(findProfileForPreset("Martin - wire dance.milk")
+           == &presetProfiles[1]);
     assert(findProfileForPreset("missing.milk") == nullptr);
     bool rejected = false;
     try {
