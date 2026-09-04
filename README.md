@@ -51,7 +51,7 @@ Run the environment check before building:
 ## Install on Omarchy
 
 ```bash
-git clone --branch v0.2.0 https://github.com/tsouth89/omadrop.git
+git clone --branch v0.2.0 https://github.com/btsouth/omadrop.git
 cd omadrop
 ./install.sh
 ```

@@ -39,4 +39,4 @@ These files are not covered by Omadrop's MIT License. They retain their original
 authorship and rights.
 
 Rights holders can request an attribution correction or removal by opening an
-issue at <https://github.com/tsouth89/omadrop/issues>.
+issue at <https://github.com/btsouth/omadrop/issues>.
